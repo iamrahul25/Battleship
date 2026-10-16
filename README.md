@@ -4,7 +4,26 @@ A 2D naval combat strategy game for **Android and Web**. Place your fleet, take 
 firing at the enemy grid, and sink every enemy ship to win. Play **offline vs. bot**
 (Easy / Medium / Hard) or **online 1v1** (Quick Match or Private Room code).
 
-> Status: planning phase. See [`plan.md`](./plan.md) for the full design.
+The full design is in [`plan.md`](./plan.md).
+
+---
+
+## Features
+
+- **Modes:** *Arsenal* (default, power-ups on) and *Classic* (standard shots only).
+- **Power-ups (Arsenal):** hits, sinks and miss streaks fill a charge meter, which you spend on
+  - **Heavy Artillery** (100 charge, 2 per game): a plus-shaped 5-cell strike;
+  - **Sonar** (60 charge): scans a 3×3 area and reports how many ship cells it contains.
+- **Rules toggles:** bonus shot on hit (on by default), ships may touch (off by default),
+  offline turn timer (off by default; online turns are always 30 s).
+- **Bots:** Easy (Cadet), Medium (Captain), Hard (Admiral), all playing by the same rules as you.
+- **Online 1v1:** Quick Match, private 6-character room codes, 30 s reconnect window,
+  rematch, quick emotes.
+- **Presentation:** Skia-drawn ships, animated water, shell flights, explosions, splashes,
+  screen shake, sonar sweeps, synthesized sound effects and music, haptics on Android.
+- **Progression (stored on the device, no account):** profile with nickname and avatar,
+  stats per mode and difficulty, rank titles, accuracy medals, and 12 achievements.
+- **Resume:** an offline game in progress is saved and can be resumed from the home screen.
 
 ---
 
@@ -146,10 +165,17 @@ need to be running.
 
 ---
 
+## Running the server in Docker
+
+```bash
+docker build -t battleship-server ./server
+docker run --rm -p 2567:2567 battleship-server
+```
+
 ## Deploying the server to the cloud (later)
 
 1. Deploy the `server/` folder (it includes a `Dockerfile`) to a host with WebSocket
-   support, such as Fly.io, Render, or Railway.
+   support, such as Fly.io, Render, or Railway. Set `CORS_ORIGIN` to your web app's origin.
 2. Build the app pointing at it:
 
    ```bash
@@ -160,6 +186,25 @@ need to be running.
 
 Local testing keeps working by leaving `EXPO_PUBLIC_SERVER_URL` unset.
 
+### EAS build profiles (`app/eas.json`)
+
+| Profile | Output | Use |
+|---|---|---|
+| `development` | Debug APK with the dev client | Local development on a device |
+| `preview` | Release APK, internal distribution | Sharing test builds |
+| `production` | App bundle (AAB), auto-incremented version | Play Store |
+
+---
+
+## Continuous integration
+
+[`.github/workflows/ci.yml`](./.github/workflows/ci.yml) runs on every push and pull request:
+
+- **server:** lint, typecheck, tests, bot simulation (fails if Hard isn't stronger than
+  Medium, and Medium stronger than Easy), production build;
+- **app:** lint, typecheck, Jest tests, web export;
+- **docker:** builds the server image.
+
 ---
 
 ## Useful scripts
@@ -169,11 +214,15 @@ Local testing keeps working by leaving `EXPO_PUBLIC_SERVER_URL` unset.
 | `server/` | `npm run dev` | Start server with auto-reload |
 | `server/` | `npm run build && npm start` | Production build and run |
 | `server/` | `npm test` | Engine, protocol, and room tests |
+| `server/` | `npm run lint` / `npm run typecheck` | Static checks |
 | `server/` | `npm run bot-sim` | Simulate bot games and report shots-to-win per difficulty |
 | `app/` | `npx expo start` | Dev server (web / Android / phone) |
 | `app/` | `npm run web` | Open the web app directly |
 | `app/` | `npm run android` | Open on Android emulator |
-| `app/` | `npm test` | App unit tests |
+| `app/` | `npm test` | App unit tests (progression, bot game controller, FX queue) |
+| `app/` | `npm run lint` / `npm run typecheck` | Static checks |
+| `app/` | `npm run build:web` | Static web build in `app/dist` |
+| `app/` | `npm run generate-assets` | Regenerate the synthesized sounds, music and icons (Python 3) |
 
 ---
 
