@@ -4,6 +4,7 @@ Usage: python app.py
 """
 
 import os
+import re
 import shutil
 import signal
 import socket
@@ -15,6 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 SERVER_DIR = ROOT / "server"
 APP_DIR = ROOT / "app"
+RELEASE_DIR = ROOT / "release"
 IS_WINDOWS = os.name == "nt"
 NPM = "npm.cmd" if IS_WINDOWS else "npm"
 BACKEND_PORT = 2567
@@ -114,6 +116,117 @@ def run_backend_and_frontend() -> None:
         print("All processes stopped.\n")
 
 
+def run_apk_script(*args: str) -> None:
+    """Run app/scripts/build-apk.js, which does the preflight checks and the Gradle build."""
+    try:
+        ensure_ready(APP_DIR)
+    except subprocess.CalledProcessError as exc:
+        print(f"[setup] npm install failed (exit code {exc.returncode}).")
+        return
+
+    try:
+        code = subprocess.run(["node", "scripts/build-apk.js", *args], cwd=APP_DIR).returncode
+    except KeyboardInterrupt:
+        print("\nCancelled.\n")
+        return
+    print("Done.\n" if code == 0 else f"Failed (exit code {code}).\n")
+
+
+def sdk_tool(subdir: str, name: str) -> str | None:
+    """Locate an Android SDK tool, falling back to whatever is on PATH."""
+    exe = f"{name}.exe" if IS_WINDOWS else name
+    sdk_roots = [os.environ.get("ANDROID_HOME"), os.environ.get("ANDROID_SDK_ROOT")]
+    if IS_WINDOWS and os.environ.get("LOCALAPPDATA"):
+        sdk_roots.append(str(Path(os.environ["LOCALAPPDATA"]) / "Android" / "Sdk"))
+    else:
+        sdk_roots.append(str(Path.home() / "Library" / "Android" / "sdk"))
+        sdk_roots.append(str(Path.home() / "Android" / "Sdk"))
+    for root in filter(None, sdk_roots):
+        candidate = Path(root) / subdir / exe
+        if candidate.exists():
+            return str(candidate)
+    return shutil.which(name)
+
+
+def connected_devices(adb: str) -> list[str]:
+    out = subprocess.run([adb, "devices"], capture_output=True, text=True).stdout
+    return [line.split()[0] for line in out.splitlines()[1:] if line.strip().endswith("device")]
+
+
+def start_emulator(adb: str) -> bool:
+    emulator = sdk_tool("emulator", "emulator")
+    if not emulator:
+        print("No emulator binary found. Start an emulator from Android Studio and retry.")
+        return False
+    avds = subprocess.run([emulator, "-list-avds"], capture_output=True, text=True).stdout.split()
+    if not avds:
+        print("No AVDs found. Create one in Android Studio (Device Manager) and retry.")
+        return False
+
+    print(f"No running device found. Starting emulator '{avds[0]}'...")
+    subprocess.Popen(
+        [emulator, "-avd", avds[0]],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if IS_WINDOWS else 0,
+    )
+    subprocess.run([adb, "wait-for-device"])
+    print("Waiting for Android to finish booting...")
+    deadline = time.time() + 180
+    while time.time() < deadline:
+        booted = subprocess.run(
+            [adb, "shell", "getprop", "sys.boot_completed"], capture_output=True, text=True
+        ).stdout.strip()
+        if booted == "1":
+            return True
+        time.sleep(2)
+    print("Emulator did not finish booting within 3 minutes.")
+    return False
+
+
+def android_package() -> str | None:
+    config = (APP_DIR / "app.config.ts").read_text(encoding="utf-8")
+    match = re.search(r"android:\s*\{[^}]*?package:\s*['\"]([^'\"]+)['\"]", config)
+    return match.group(1) if match else None
+
+
+def run_apk_in_emulator() -> None:
+    apk = RELEASE_DIR / "app-release.apk"
+    if not apk.exists():
+        print(f"APK not found at {apk.relative_to(ROOT)}. Build it first with option 2.\n")
+        return
+
+    adb = sdk_tool("platform-tools", "adb")
+    if not adb:
+        print("adb not found. Install Android SDK platform-tools or set ANDROID_HOME.\n")
+        return
+
+    package = android_package()
+    if not package:
+        print("Could not read android.package from app/app.config.ts.\n")
+        return
+
+    try:
+        if not connected_devices(adb) and not start_emulator(adb):
+            print()
+            return
+        print(f"Installing {apk.relative_to(ROOT)}...")
+        subprocess.run([adb, "install", "-r", str(apk)], check=True)
+        print(f"Launching {package}...")
+        subprocess.run(
+            [adb, "shell", "monkey", "-p", package, "-c", "android.intent.category.LAUNCHER", "1"],
+            check=True,
+            stdout=subprocess.DEVNULL,
+        )
+    except subprocess.CalledProcessError as exc:
+        print(f"Failed (exit code {exc.returncode}).\n")
+        return
+    except KeyboardInterrupt:
+        print("\nCancelled.\n")
+        return
+    print("Done.\n")
+
+
 def main() -> None:
     if shutil.which(NPM) is None:
         print("npm was not found on PATH. Install Node.js 20+ first.")
@@ -124,6 +237,9 @@ def main() -> None:
         print("        Battleship Launcher")
         print("=" * 32)
         print("1. Run backend + frontend")
+        print("2. Build Android APK (release/app-release.apk)")
+        print("3. Run prechecks (APK preflight)")
+        print("4. Run release/app-release.apk in emulator (adb install + launch)")
         print("0. Exit")
         try:
             choice = input("Select an option: ").strip()
@@ -133,6 +249,12 @@ def main() -> None:
 
         if choice == "1":
             run_backend_and_frontend()
+        elif choice == "2":
+            run_apk_script("release")
+        elif choice == "3":
+            run_apk_script("preflight", "release")
+        elif choice == "4":
+            run_apk_in_emulator()
         elif choice == "0":
             break
         else:

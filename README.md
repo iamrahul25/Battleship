@@ -175,9 +175,19 @@ docker run --rm -p 2567:2567 battleship-server
 ## Deploying the server to the cloud
 
 The server is deployed on [Render](https://render.com) from [`render.yaml`](./render.yaml)
-(Docker, free plan, Singapore) at `wss://battleship-iamrahul25.onrender.com`. Every push to
-`main` that touches `server/` redeploys it. Health check:
-<https://battleship-iamrahul25.onrender.com/health>.
+(Docker, free plan, Singapore). Every push to `main` that touches `server/` redeploys it.
+
+| Production backend | URL |
+|---|---|
+| WebSocket (used by the app) | `wss://battleship-iamrahul25.onrender.com` |
+| HTTP base | <https://battleship-iamrahul25.onrender.com> |
+| Health check | <https://battleship-iamrahul25.onrender.com/health> |
+
+A healthy server responds with:
+
+```json
+{"ok":true,"protocolVersion":1,"uptime":33.57,"rooms":0}
+```
 
 The free plan sleeps after ~15 minutes without traffic; the first connection afterwards
 takes ~30–60 s while it wakes up.

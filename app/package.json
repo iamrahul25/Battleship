@@ -6,12 +6,14 @@
   "scripts": {
     "start": "expo start",
     "web": "expo start --web",
-    "android": "expo start --android",
+    "android": "expo run:android",
     "build:web": "expo export --platform web",
     "test": "jest",
     "typecheck": "tsc --noEmit",
     "lint": "expo lint",
     "generate-assets": "python scripts/generate_assets.py",
+    "release-apk": "node scripts/build-apk.js release",
+    "preflight-apk": "node scripts/build-apk.js preflight release",
     "postinstall": "node scripts/copy-canvaskit.js"
   },
   "jest": {
