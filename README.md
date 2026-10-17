@@ -172,17 +172,28 @@ docker build -t battleship-server ./server
 docker run --rm -p 2567:2567 battleship-server
 ```
 
-## Deploying the server to the cloud (later)
+## Deploying the server to the cloud
 
-1. Deploy the `server/` folder (it includes a `Dockerfile`) to a host with WebSocket
-   support, such as Fly.io, Render, or Railway. Set `CORS_ORIGIN` to your web app's origin.
-2. Build the app pointing at it:
+The server is deployed on [Render](https://render.com) from [`render.yaml`](./render.yaml)
+(Docker, free plan, Singapore) at `wss://battleship-iamrahul25.onrender.com`. Every push to
+`main` that touches `server/` redeploys it. Health check:
+<https://battleship-iamrahul25.onrender.com/health>.
 
-   ```bash
-   cd app
-   EXPO_PUBLIC_SERVER_URL=wss://your-server-host npx eas build --profile preview --platform android
-   EXPO_PUBLIC_SERVER_URL=wss://your-server-host npx expo export --platform web
-   ```
+The free plan sleeps after ~15 minutes without traffic; the first connection afterwards
+takes ~30–60 s while it wakes up.
+
+The `preview` EAS profile already points at the Render server, so building a shareable APK is:
+
+```bash
+cd app
+npx eas-cli@latest build --profile preview --platform android
+```
+
+For a web build pointing at the same server:
+
+```bash
+EXPO_PUBLIC_SERVER_URL=wss://battleship-iamrahul25.onrender.com npx expo export --platform web
+```
 
 Local testing keeps working by leaving `EXPO_PUBLIC_SERVER_URL` unset.
 
