@@ -13,6 +13,11 @@ config.watchFolders = [...(config.watchFolders ?? []), sharedDir];
 const defaultResolve = config.resolver.resolveRequest;
 config.resolver.resolveRequest = (context, moduleName, platform) => {
   const resolve = defaultResolve ?? context.resolveRequest;
+  // @colyseus/sdk imports the Node-only `ws` package (needs zlib/net) but uses globalThis.WebSocket when present,
+  // which React Native and browsers always provide.
+  if (moduleName === 'ws') {
+    return { type: 'empty' };
+  }
   if (moduleName.startsWith('@shared/')) {
     return resolve(context, path.join(sharedDir, moduleName.slice('@shared/'.length)), platform);
   }

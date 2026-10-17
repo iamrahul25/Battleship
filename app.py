@@ -153,35 +153,45 @@ def connected_devices(adb: str) -> list[str]:
     return [line.split()[0] for line in out.splitlines()[1:] if line.strip().endswith("device")]
 
 
-def start_emulator(adb: str) -> bool:
+def connected_emulators(adb: str) -> list[str]:
+    return [serial for serial in connected_devices(adb) if serial.startswith("emulator-")]
+
+
+def start_emulator(adb: str) -> str | None:
     emulator = sdk_tool("emulator", "emulator")
     if not emulator:
         print("No emulator binary found. Start an emulator from Android Studio and retry.")
-        return False
+        return None
     avds = subprocess.run([emulator, "-list-avds"], capture_output=True, text=True).stdout.split()
     if not avds:
         print("No AVDs found. Create one in Android Studio (Device Manager) and retry.")
-        return False
+        return None
 
-    print(f"No running device found. Starting emulator '{avds[0]}'...")
+    print(f"No running emulator found. Starting emulator '{avds[0]}'...")
     subprocess.Popen(
         [emulator, "-avd", avds[0]],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if IS_WINDOWS else 0,
     )
-    subprocess.run([adb, "wait-for-device"])
     print("Waiting for Android to finish booting...")
     deadline = time.time() + 180
+    serial = None
     while time.time() < deadline:
-        booted = subprocess.run(
-            [adb, "shell", "getprop", "sys.boot_completed"], capture_output=True, text=True
-        ).stdout.strip()
-        if booted == "1":
-            return True
+        if serial is None:
+            emulators = connected_emulators(adb)
+            serial = emulators[0] if emulators else None
+        if serial is not None:
+            booted = subprocess.run(
+                [adb, "-s", serial, "shell", "getprop", "sys.boot_completed"],
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            if booted == "1":
+                return serial
         time.sleep(2)
     print("Emulator did not finish booting within 3 minutes.")
-    return False
+    return None
 
 
 def android_package() -> str | None:
@@ -207,14 +217,19 @@ def run_apk_in_emulator() -> None:
         return
 
     try:
-        if not connected_devices(adb) and not start_emulator(adb):
+        emulators = connected_emulators(adb)
+        serial = emulators[0] if emulators else start_emulator(adb)
+        if not serial:
             print()
             return
-        print(f"Installing {apk.relative_to(ROOT)}...")
-        subprocess.run([adb, "install", "-r", str(apk)], check=True)
+        print(f"Installing {apk.relative_to(ROOT)} on {serial}...")
+        subprocess.run([adb, "-s", serial, "install", "-r", str(apk)], check=True)
         print(f"Launching {package}...")
         subprocess.run(
-            [adb, "shell", "monkey", "-p", package, "-c", "android.intent.category.LAUNCHER", "1"],
+            [
+                adb, "-s", serial, "shell", "monkey",
+                "-p", package, "-c", "android.intent.category.LAUNCHER", "1",
+            ],
             check=True,
             stdout=subprocess.DEVNULL,
         )
