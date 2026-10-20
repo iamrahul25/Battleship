@@ -1,7 +1,7 @@
 import { StyleSheet, Text, View } from 'react-native';
-import { CHARGE, WEAPONS } from '@shared/engine';
+import { CHARGE, SHAPED_SHIPS, shapeCells, WEAPONS } from '@shared/engine';
 import { drawMiss, drawHitPeg } from '@/components/grid/boardPicture';
-import { drawShipIcon } from '@/art/ships';
+import { drawShipIcon, drawShipShape, shipIconSize } from '@/art/ships';
 import { paint } from '@/art/draw';
 import { SkiaIcon } from '@/art/SkiaIcon';
 import { Panel } from '@/components/ui/Panel';
@@ -49,7 +49,7 @@ export default function HowToPlay() {
   return (
     <Screen title="How to Play" back scroll>
       <Panel title="Objective">
-        <Text style={styles.p}>Sink all five enemy ships before they sink yours. You can&apos;t see the enemy fleet: deduce it from your hits and misses.</Text>
+        <Text style={styles.p}>Sink every enemy ship before they sink yours. You can&apos;t see the enemy fleet: deduce it from your hits and misses.</Text>
       </Panel>
 
       <Panel title="Your fleet" style={styles.panel}>
@@ -61,7 +61,23 @@ export default function HowToPlay() {
             </Text>
           </View>
         ))}
-        <Text style={[styles.p, { marginTop: 8 }]}>Drag ships onto the 10×10 grid and tap to rotate. Ships can&apos;t overlap and, by default, can&apos;t touch, not even diagonally.</Text>
+        <Text style={[styles.p, { marginTop: 8 }]}>Drag ships onto the grid and tap to rotate. Ships can&apos;t overlap and, by default, can&apos;t touch, not even diagonally.</Text>
+      </Panel>
+
+      <Panel title="Arsenal fleet" style={styles.panel}>
+        <Text style={styles.p}>In Arsenal mode some straight ships are swapped for shaped ships. Tap a placed ship to cycle through its rotations.</Text>
+        {Object.values(SHAPED_SHIPS).map((def) => {
+          const cells = shapeCells(def, 0);
+          const { width, height } = shipIconSize(cells, 22);
+          return (
+            <View key={def.id} style={styles.shipRow}>
+              <SkiaIcon cacheKey={`help:ship:${def.id}`} width={width} height={height} draw={(c) => drawShipShape(c, def.id, cells, 0, 22)} />
+              <Text style={styles.shipName}>
+                {def.name} · {def.cells.length}
+              </Text>
+            </View>
+          );
+        })}
       </Panel>
 
       <Panel title="Battle" style={styles.panel}>

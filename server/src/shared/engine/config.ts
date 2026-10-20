@@ -72,30 +72,85 @@ const SCALED_FLEET_LENGTHS: Record<number, number[]> = {
   14: [6, 5, 4, 4, 3, 3, 3, 2, 2],
 };
 
-function fleetFromLengths(lengths: number[]): ShipDef[] {
-  const counts = new Map<number, number>();
-  for (const len of lengths) counts.set(len, (counts.get(len) ?? 0) + 1);
-  return [...counts.entries()]
-    .sort((a, b) => b[0] - a[0])
-    .map(([len, count]) => ship(SHIP_CLASS_BY_LENGTH[len][0], SHIP_CLASS_BY_LENGTH[len][1], len, count));
+const shaped = (id: string, name: string, cells: [number, number][]): ShipDef => ({
+  id,
+  name,
+  cells: cells.map(([x, y]) => ({ x, y })),
+  count: 1,
+});
+
+/** Tetromino ships used by the Arsenal mixed fleet. */
+export const SHAPED_SHIPS = {
+  T: shaped('tfrigate', 'T-Frigate', [
+    [0, 0],
+    [1, 0],
+    [2, 0],
+    [1, 1],
+  ]),
+  L: shaped('lcorvette', 'L-Corvette', [
+    [0, 0],
+    [0, 1],
+    [1, 1],
+    [2, 1],
+  ]),
+  Z: shaped('zraider', 'Z-Raider', [
+    [0, 0],
+    [1, 0],
+    [1, 1],
+    [2, 1],
+  ]),
+} as const;
+
+type FleetSpec = (number | keyof typeof SHAPED_SHIPS)[];
+
+/** Arsenal fleets: shaped ships replace mid-size straight ones, keeping ~16–20% ship cells. */
+const MIXED_FLEET_SPECS: Record<number, FleetSpec> = {
+  7: ['T', 3, 2],
+  8: ['T', 'L', 3, 2],
+  9: ['T', 'L', 'Z', 2],
+  10: [5, 'T', 'L', 'Z', 2],
+  11: [5, 4, 'T', 'L', 'Z', 2],
+  12: [5, 4, 'T', 'L', 'Z', 3, 2],
+  13: [5, 4, 'T', 'L', 'Z', 3, 3, 2],
+  14: [6, 5, 'T', 'L', 'Z', 3, 3, 2, 2],
+  15: [6, 5, 4, 'T', 'L', 'Z', 3, 3, 2, 2],
+};
+
+function fleetFromSpec(spec: FleetSpec): ShipDef[] {
+  const counts = new Map<string, { def: ShipDef; count: number }>();
+  for (const item of spec) {
+    const def = typeof item === 'number' ? ship(...SHIP_CLASS_BY_LENGTH[item], item) : SHAPED_SHIPS[item];
+    const entry = counts.get(def.id);
+    if (entry) entry.count++;
+    else counts.set(def.id, { def, count: 1 });
+  }
+  return [...counts.values()]
+    .map(({ def, count }) => ({ ...def, count }))
+    .sort((a, b) => b.cells.length - a.cells.length);
 }
 
 export function clampBoardSize(n: number): number {
   return Math.max(BOARD_SIZE_MIN, Math.min(BOARD_SIZE_MAX, Math.round(n)));
 }
 
-/** Fleet auto-scaled to an n×n board. */
-export function fleetForSize(n: number): ShipDef[] {
+/** Fleet auto-scaled to an n×n board. Arsenal mixes in T/L/Z ships; Classic stays straight. */
+export function fleetForSize(n: number, mode: GameMode = 'classic'): ShipDef[] {
   const size = clampBoardSize(n);
+  if (mode === 'arsenal') return fleetFromSpec(MIXED_FLEET_SPECS[size]);
   const preset = (Object.keys(GridPresets) as GridPresetId[]).find((id) => GridPresets[id].width === size);
   if (preset) return FleetPresets[preset];
-  return fleetFromLengths(SCALED_FLEET_LENGTHS[size]);
+  return fleetFromSpec(SCALED_FLEET_LENGTHS[size]);
 }
 
 /** Grid + fleet overrides for an n×n board. */
-export function boardRules(n: number): Pick<RuleSet, 'grid' | 'fleet'> {
+export function boardRules(n: number, mode: GameMode = 'classic'): Pick<RuleSet, 'grid' | 'fleet'> {
   const size = clampBoardSize(n);
-  return { grid: { width: size, height: size }, fleet: fleetForSize(size) };
+  return { grid: { width: size, height: size }, fleet: fleetForSize(size, mode) };
+}
+
+/** True when every cell of the ship lies on one row or column. */
+export function isStraightShip(def: Pick<ShipDef, 'cells'>): boolean {
+  return def.cells.every((c) => c.x === def.cells[0].x) || def.cells.every((c) => c.y === def.cells[0].y);
 }
 
 export const ONLINE_TURN_TIME_MS = 30_000;

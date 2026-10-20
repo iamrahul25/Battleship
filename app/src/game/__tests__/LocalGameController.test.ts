@@ -143,7 +143,7 @@ describe('LocalGameController', () => {
   it.each([7, 8, 12, 15])('plays a full game on a %i×%i board', (n) => {
     const c = new LocalGameController(options({ boardSize: n }));
     expect(c.rules.grid).toEqual({ width: n, height: n });
-    expect(c.rules.fleet).toEqual(fleetForSize(n));
+    expect(c.rules.fleet).toEqual(fleetForSize(n, 'arsenal'));
     const events = playOut(c);
     expect(events.some((e) => e.type === 'gameOver')).toBe(true);
     c.dispose();

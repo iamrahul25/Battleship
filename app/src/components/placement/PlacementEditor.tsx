@@ -17,16 +17,18 @@ import {
   randomSeed,
   type Rotation,
   type RuleSet,
+  shapeCells,
   shapeSize,
   shipAt,
   type ShipDef,
+  uniqueRotations,
 } from '@shared/engine';
-import { drawShipIcon } from '@/art/ships';
+import { drawShipShape, shipIconSize } from '@/art/ships';
 import { SkiaIcon } from '@/art/SkiaIcon';
 import { playSound } from '@/audio/SoundManager';
 import { haptic } from '@/platform/haptics';
 import { colors, fonts, text } from '@/theme';
-import { gridGeometry } from '../grid/BattleGrid';
+import { gridGeometry, labelFontSize } from '../grid/BattleGrid';
 import { boardPicture } from '../grid/boardPicture';
 import { Water } from '../grid/Water';
 
@@ -54,8 +56,16 @@ interface DragState {
 
 const DOCK_SCALE = 0.72;
 
+const shapeSignature = (def: ShipDef, r: Rotation) =>
+  shapeCells(def, r)
+    .map((c) => `${c.x},${c.y}`)
+    .sort()
+    .join('|');
+const sameShape = (def: ShipDef, a: Rotation, b: Rotation) => shapeSignature(def, a) === shapeSignature(def, b);
+
 export function PlacementEditor({ rules, size, ships, onChange, disabled, reducedMotion }: Props) {
   const { cell: s, gutter, gridW, gridH } = gridGeometry(size, rules.grid.width, rules.grid.height, true);
+  const labelSize = labelFontSize(s, gutter, rules.grid.height, 12);
   const [rootW, setRootW] = useState(size);
   const rootRef = useRef<ComponentRef<typeof View>>(null);
   /** Window position of the root view; dock gestures report window coordinates. */
@@ -75,10 +85,10 @@ export function PlacementEditor({ rules, size, ships, onChange, disabled, reduce
 
   const gridX = (rootW - size) / 2 + gutter;
   const gridY = gutter;
-  // Room for the hint plus two rows of dock ships, so the grid doesn't jump as ships leave the dock.
-  const dockMinHeight = 26 + 2 * (s * DOCK_SCALE + 18) + 12;
-
   const instances = useMemo(() => fleetInstances(rules), [rules]);
+  // Room for the hint plus two rows of dock ships, so the grid doesn't jump as ships leave the dock.
+  const dockRowCells = Math.max(1, ...rules.fleet.map((d) => shapeSize(d, 0).height));
+  const dockMinHeight = 26 + 2 * (dockRowCells * s * DOCK_SCALE + 18) + 12;
   const placedUids = new Set(ships.map((sh) => sh.uid));
   const unplaced = instances.filter((i) => !placedUids.has(i.uid));
 
@@ -165,19 +175,27 @@ export function PlacementEditor({ rules, size, ships, onChange, disabled, reduce
   const rotateShip = (ship: PlacedShip) => {
     const inst = instances.find((i) => i.uid === ship.uid);
     if (!inst) return;
-    const nextRot: Rotation = ship.rotation === 0 || ship.rotation === 180 ? 90 : 0;
     const others = { ...board, ships: ships.filter((sh) => sh.uid !== ship.uid) };
-    const { width, height } = shapeSize(inst.def, nextRot);
-    // Try in place first, then nudge back inside the grid.
-    const candidates = [
-      ship.origin,
-      { x: Math.min(ship.origin.x, rules.grid.width - width), y: Math.min(ship.origin.y, rules.grid.height - height) },
-    ];
-    const fit = candidates.find((o) => canPlace(others, inst.def, o, nextRot, rules, ship.uid));
-    if (!fit) return doShake();
-    playSound('rotate');
-    haptic('light');
-    onChange([...others.ships, makePlacedShip(inst.def, inst.index, fit, nextRot)]);
+    // Cycle through the distinct orientations, skipping any that don't fit here.
+    const rotations = uniqueRotations(inst.def);
+    const start = Math.max(0, rotations.findIndex((r) => sameShape(inst.def, r, ship.rotation)));
+    for (let step = 1; step < rotations.length; step++) {
+      const nextRot = rotations[(start + step) % rotations.length];
+      const { width, height } = shapeSize(inst.def, nextRot);
+      // Try in place first, then nudge back inside the grid.
+      const candidates = [
+        ship.origin,
+        { x: Math.min(ship.origin.x, rules.grid.width - width), y: Math.min(ship.origin.y, rules.grid.height - height) },
+      ];
+      const fit = candidates.find((o) => canPlace(others, inst.def, o, nextRot, rules, ship.uid));
+      if (fit) {
+        playSound('rotate');
+        haptic('light');
+        onChange([...others.ships, makePlacedShip(inst.def, inst.index, fit, nextRot)]);
+        return;
+      }
+    }
+    doShake();
   };
 
   const autoPlace = (uid: string) => {
@@ -185,7 +203,7 @@ export function PlacementEditor({ rules, size, ships, onChange, disabled, reduce
     if (!inst || disabled) return;
     for (let y = 0; y < rules.grid.height; y++)
       for (let x = 0; x < rules.grid.width; x++)
-        for (const rot of [0, 90] as Rotation[])
+        for (const rot of uniqueRotations(inst.def))
           if (canPlace(board, inst.def, { x, y }, rot, rules)) {
             playSound('drop');
             onChange([...ships, makePlacedShip(inst.def, inst.index, { x, y }, rot)]);
@@ -262,14 +280,14 @@ export function PlacementEditor({ rules, size, ships, onChange, disabled, reduce
       <Animated.View style={[{ width: size, height: gutter + gridH, alignSelf: 'center' }, gridStyle]}>
         <View style={[styles.labelsRow, { left: gutter, height: gutter }]} pointerEvents="none">
           {Array.from({ length: rules.grid.width }, (_, i) => (
-            <Text key={i} style={[styles.label, { width: s, lineHeight: gutter }]}>
+            <Text key={i} style={[styles.label, { width: s, lineHeight: gutter, fontSize: labelSize }]}>
               {String.fromCharCode(65 + i)}
             </Text>
           ))}
         </View>
         <View style={[styles.labelsCol, { top: gutter, width: gutter }]} pointerEvents="none">
           {Array.from({ length: rules.grid.height }, (_, i) => (
-            <Text key={i} style={[styles.label, { height: s, lineHeight: s, width: gutter }]}>
+            <Text key={i} numberOfLines={1} style={[styles.label, { height: s, lineHeight: s, width: gutter, fontSize: labelSize }]}>
               {i + 1}
             </Text>
           ))}
@@ -330,7 +348,7 @@ export function PlacementEditor({ rules, size, ships, onChange, disabled, reduce
             cacheKey={`float:${drag.def.id}:${drag.def.cells.length}:${drag.rotation}:${Math.round(s)}`}
             width={floatW}
             height={floatH}
-            draw={(c) => drawShipIcon(c, drag.def.id, drag.def.cells.length, s, { vertical: drag.rotation === 90 || drag.rotation === 270 })}
+            draw={(c) => drawShipShape(c, drag.def.id, shapeCells(drag.def, drag.rotation), drag.rotation, s)}
           />
         </Animated.View>
       )}
@@ -362,8 +380,9 @@ function DockShip({
 }) {
   const start = useRef({ local: { x: 0, y: 0 }, abs: { x: 0, y: 0 } });
   const len = def.cells.length;
-  const w = len * s * DOCK_SCALE;
-  const h = s * DOCK_SCALE;
+  const unit = s * DOCK_SCALE;
+  const cells = shapeCells(def, 0);
+  const { width: w, height: h } = shipIconSize(cells, unit);
   const pan = usePanGesture({
     enabled: !disabled,
     minDistance: 4,
@@ -385,7 +404,7 @@ function DockShip({
         accessibilityRole="button"
         accessibilityLabel={`${def.name}, ${len} cells`}
       >
-        <SkiaIcon cacheKey={`dock:${def.id}:${len}:${Math.round(h)}`} width={w} height={h} draw={(c) => drawShipIcon(c, def.id, len, h)} />
+        <SkiaIcon cacheKey={`dock:${def.id}:${len}:${Math.round(unit)}`} width={w} height={h} draw={(c) => drawShipShape(c, def.id, cells, 0, unit)} />
         <Text style={styles.dockLabel}>
           {def.name} · {len}
         </Text>

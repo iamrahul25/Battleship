@@ -77,7 +77,7 @@ export class LocalGameController implements GameController {
     this.rules = saved
       ? saved.state.rules
       : rulesForMode(options.mode, {
-          ...boardRules(options.boardSize ?? DEFAULT_BOARD_SIZE),
+          ...boardRules(options.boardSize ?? DEFAULT_BOARD_SIZE, options.mode),
           bonusShotOnHit: options.bonusShotOnHit,
           allowTouching: options.allowTouching,
           turnTimeMs: options.offlineTimer ? ONLINE_TURN_TIME_MS : null,

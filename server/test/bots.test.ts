@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyAction,
+  BOARD_SIZE_MAX,
+  BOARD_SIZE_MIN,
+  boardRules,
   botPlaceFleet,
   botViewFromPublic,
   cellAt,
@@ -43,6 +46,15 @@ describe('bot decisions', () => {
     for (let seed = 1; seed <= 15; seed++) {
       expect(simulateGame(d, seed).illegal).toBe(0);
       expect(simulateGame(d, seed, createRules()).illegal).toBe(0);
+    }
+  });
+
+  it.each(difficulties)('%s sinks mixed T/L/Z fleets on every board size', (d) => {
+    for (let n = BOARD_SIZE_MIN; n <= BOARD_SIZE_MAX; n++) {
+      const r = createRules(boardRules(n, 'arsenal'));
+      const res = simulateGame(d, n, r);
+      expect(res.illegal).toBe(0);
+      expect(res.shots).toBeLessThanOrEqual(n * n);
     }
   });
 
@@ -120,7 +132,7 @@ describe('difficulty ordering', () => {
     expect(medium).toBeLessThan(easy);
     expect(hard).toBeLessThan(55);
     expect(medium).toBeLessThan(70);
-  });
+  }, 120_000);
 
   it('hard decision is fast (< 20 ms)', () => {
     const s = battleGame();

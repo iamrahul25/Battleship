@@ -1,4 +1,5 @@
 import { key } from '../board';
+import { isStraightShip } from '../config';
 import type { Rng } from '../rng';
 import type { Coord } from '../types';
 import {
@@ -54,8 +55,11 @@ export function mediumChoose(view: BotView, rng: Rng): BotAction {
     if (best && best.value >= 6) return { type: 'USE_WEAPON', weaponId: 'sonar', target: best.center };
   }
 
-  const minLen = Math.min(...view.remainingFleet.map((s) => s.cells.length), Infinity);
-  const step = Number.isFinite(minLen) ? Math.max(1, minLen) : 1;
+  // A diagonal stride of n only guarantees coverage for straight ships of length n; any other
+  // shape contains an adjacent pair, so stride 2 is the widest safe one.
+  const strides = view.remainingFleet.map((s) => (isStraightShip(s) ? s.cells.length : 2));
+  const minStride = Math.min(...strides, Infinity);
+  const step = Number.isFinite(minStride) ? Math.max(1, minStride) : 1;
   const parity = pool.filter((c: Coord) => (c.x + c.y) % step === 0);
   const sloppy = rng.next() < MEDIUM_SLOPPINESS;
   return { type: 'FIRE', target: rng.pick(parity.length && !sloppy ? parity : pool) };

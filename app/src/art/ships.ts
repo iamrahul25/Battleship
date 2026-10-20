@@ -1,7 +1,7 @@
-import type { SkCanvas } from '@shopify/react-native-skia';
+import { PathOp, type SkCanvas, Skia, type SkPath } from '@shopify/react-native-skia';
 import type { Coord, Rotation } from '@shared/engine';
 import { colors } from '@/theme';
-import { linear, paint, poly, radial, rrect } from './draw';
+import { linear, paint, poly, radial, rect, rrect } from './draw';
 
 export interface ShipDrawInput {
   defId: string;
@@ -110,28 +110,99 @@ function bounds(cells: Coord[]) {
   return { minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) };
 }
 
+const isStraight = (cells: Coord[]) => cells.every((c) => c.x === cells[0].x) || cells.every((c) => c.y === cells[0].y);
+
+const DIRS: [number, number][] = [
+  [1, 0],
+  [0, 1],
+  [-1, 0],
+  [0, -1],
+];
+
+/** Rounded cell blocks bridged to their neighbours, merged into one outline. */
+function cellsOutline(cells: Coord[], s: number, ox: number, oy: number, inset: number, radius: number): SkPath {
+  const has = new Set(cells.map((c) => `${c.x},${c.y}`));
+  const pieces: SkPath[] = [];
+  for (const cell of cells) {
+    const x = ox + cell.x * s;
+    const y = oy + cell.y * s;
+    pieces.push(Skia.PathBuilder.Make().addRRect(rrect(x + inset, y + inset, s - inset * 2, s - inset * 2, radius)).detach());
+    if (has.has(`${cell.x + 1},${cell.y}`)) pieces.push(Skia.PathBuilder.Make().addRect(rect(x + s / 2, y + inset, s, s - inset * 2)).detach());
+    if (has.has(`${cell.x},${cell.y + 1}`)) pieces.push(Skia.PathBuilder.Make().addRect(rect(x + inset, y + s / 2, s - inset * 2, s)).detach());
+  }
+  return pieces.reduce((acc, p) => Skia.Path.MakeFromOp(acc, p, PathOp.Union) ?? acc);
+}
+
+/** Polyomino hull (T/L/Z): one merged deck, turrets on the arm ends, bridge at the bends. */
+function drawShapedHull(c: SkCanvas, cells: Coord[], s: number, ox: number, oy: number, silhouette: boolean) {
+  const b = bounds(cells);
+  const pad = s * 0.12;
+  const hull = cellsOutline(cells, s, ox, oy, pad, s * 0.3);
+  const top = oy + b.minY * s;
+  const bot = oy + (b.maxY + 1) * s;
+  c.drawPath(hull, silhouette ? paint(colors.steel400) : linear(0, top, 0, bot, [colors.steel200, colors.steel400, colors.steel600], [0, 0.45, 1]));
+  c.drawPath(hull, paint(colors.navy900, { stroke: Math.max(1, s * 0.05), alpha: 0.7 }));
+
+  const has = new Set(cells.map((cc) => `${cc.x},${cc.y}`));
+  const center = (cc: Coord) => [ox + (cc.x + 0.5) * s, oy + (cc.y + 0.5) * s] as const;
+  const deck = paint(colors.steel600, { stroke: Math.max(0.8, s * 0.035), alpha: silhouette ? 0.5 : 0.9 });
+  for (const cell of cells) {
+    const [cx, cy] = center(cell);
+    for (const [dx, dy] of DIRS.slice(0, 2)) {
+      if (has.has(`${cell.x + dx},${cell.y + dy}`)) c.drawLine(cx, cy, cx + dx * s, cy + dy * s, deck);
+    }
+  }
+
+  const r = s * 0.2;
+  for (const cell of cells) {
+    const [cx, cy] = center(cell);
+    const links = DIRS.filter(([dx, dy]) => has.has(`${cell.x + dx},${cell.y + dy}`));
+    if (links.length === 1) {
+      const [dx, dy] = links[0];
+      const angle = dx === 1 ? 180 : dx === -1 ? 0 : dy === 1 ? 270 : 90;
+      c.save();
+      c.translate(cx, cy);
+      c.rotate(angle, 0, 0);
+      turret(c, -s * 0.08, 0, r, 1, silhouette);
+      c.restore();
+    } else if (links.length >= 3 || (links.length === 2 && links[0][0] !== -links[1][0])) {
+      const w = s * 0.5;
+      c.drawRRect(rrect(cx - w / 2, cy - w / 2, w, w, s * 0.08), paint(silhouette ? colors.steel200 : '#9AAABD'));
+      c.drawRRect(rrect(cx - w / 2, cy - w / 2, w, w, s * 0.08), paint(colors.steel600, { stroke: Math.max(0.6, s * 0.03) }));
+      c.drawCircle(cx, cy, s * 0.11, paint(silhouette ? colors.steel400 : colors.steel600));
+      if (!silhouette && links.length >= 3) c.drawCircle(cx + w * 0.3, cy - w * 0.3, s * 0.05, paint(colors.signalRed));
+    } else {
+      c.drawRRect(rrect(cx - s * 0.14, cy - s * 0.14, s * 0.28, s * 0.28, s * 0.04), paint(silhouette ? colors.steel200 : '#8FA0B4'));
+    }
+  }
+}
+
 /**
  * Draws a ship in board space. `ox`/`oy` is the pixel origin of cell (0,0), `s` the cell size.
  */
 export function drawShip(c: SkCanvas, ship: ShipDrawInput, s: number, ox: number, oy: number, opts: ShipDrawOptions = {}) {
   if (!ship.cells.length) return;
   const b = bounds(ship.cells);
-  const horizontal = b.maxX - b.minX >= b.maxY - b.minY;
-  const len = horizontal ? b.maxX - b.minX + 1 : b.maxY - b.minY + 1;
-  const flipped = ship.rotation === 180 || ship.rotation === 270;
 
-  c.save();
-  c.translate(ox + b.minX * s, oy + b.minY * s);
-  if (!horizontal) {
-    c.translate(s, 0);
-    c.rotate(90, 0, 0);
+  if (isStraight(ship.cells)) {
+    const horizontal = b.maxX - b.minX >= b.maxY - b.minY;
+    const len = horizontal ? b.maxX - b.minX + 1 : b.maxY - b.minY + 1;
+    const flipped = ship.rotation === 180 || ship.rotation === 270;
+    c.save();
+    c.translate(ox + b.minX * s, oy + b.minY * s);
+    if (!horizontal) {
+      c.translate(s, 0);
+      c.rotate(90, 0, 0);
+    }
+    if (flipped) {
+      c.translate(len * s, s);
+      c.scale(-1, -1);
+    }
+    drawHull(c, ship.defId, len, s, !!opts.silhouette);
+    c.restore();
+  } else {
+    drawShapedHull(c, ship.cells, s, ox, oy, !!opts.silhouette);
   }
-  if (flipped) {
-    c.translate(len * s, s);
-    c.scale(-1, -1);
-  }
-  drawHull(c, ship.defId, len, s, !!opts.silhouette);
-  c.restore();
 
   for (const d of opts.damaged ?? []) {
     const cx = ox + (d.x + 0.5) * s;
@@ -140,30 +211,38 @@ export function drawShip(c: SkCanvas, ship: ShipDrawInput, s: number, ox: number
   }
 
   if (opts.sunk || opts.tint) {
-    const x = ox + b.minX * s;
-    const y = oy + b.minY * s;
-    const w = (b.maxX - b.minX + 1) * s;
-    const h = (b.maxY - b.minY + 1) * s;
-    const box = rrect(x + s * 0.06, y + s * 0.06, w - s * 0.12, h - s * 0.12, s * 0.2);
+    const box = cellsOutline(ship.cells, s, ox, oy, s * 0.06, s * 0.2);
     if (opts.sunk) {
-      c.drawRRect(box, paint('#05080D', { alpha: 0.55 }));
-      c.drawRRect(box, paint(colors.signalRed, { stroke: Math.max(1.5, s * 0.07) }));
+      c.drawPath(box, paint('#05080D', { alpha: 0.55 }));
+      c.drawPath(box, paint(colors.signalRed, { stroke: Math.max(1.5, s * 0.07) }));
     } else if (opts.tint) {
       const col = opts.tint === 'valid' ? colors.radarGreen : colors.signalRed;
-      c.drawRRect(box, paint(col, { alpha: 0.28 }));
-      c.drawRRect(box, paint(col, { stroke: Math.max(1.5, s * 0.06) }));
+      c.drawPath(box, paint(col, { alpha: 0.28 }));
+      c.drawPath(box, paint(col, { stroke: Math.max(1.5, s * 0.06) }));
     }
   }
 }
 
-/** Ship drawn standalone (dock, fleet tracker, illustrations), horizontal or vertical. */
-export function drawShipIcon(c: SkCanvas, defId: string, len: number, s: number, opts: ShipDrawOptions & { vertical?: boolean } = {}) {
-  const cells = Array.from({ length: len }, (_, i) => (opts.vertical ? { x: 0, y: i } : { x: i, y: 0 }));
-  drawShip(c, { defId, cells, rotation: opts.vertical ? 90 : 0 }, s, 0, 0, opts);
+/** Pixel size of a ship shape (cells normalized to start at 0,0) drawn with cell size `s`. */
+export function shipIconSize(cells: Coord[], s: number) {
+  const b = bounds(cells);
+  return { width: (b.maxX + 1) * s, height: (b.maxY + 1) * s };
+}
+
+/** Ship of any shape drawn standalone; `cells` are normalized to start at (0,0). */
+export function drawShipShape(c: SkCanvas, defId: string, cells: Coord[], rotation: Rotation, s: number, opts: ShipDrawOptions = {}) {
+  drawShip(c, { defId, cells, rotation }, s, 0, 0, opts);
   if (opts.sunk) {
     // Red strike-through for the fleet tracker.
+    const { width, height } = shipIconSize(cells, s);
     const strike = paint(colors.signalRed, { stroke: Math.max(1.5, s * 0.1), cap: 'round' });
-    if (opts.vertical) c.drawLine(s * 0.15, s * 0.2, s * 0.85, len * s - s * 0.2, strike);
-    else c.drawLine(s * 0.2, s * 0.85, len * s - s * 0.2, s * 0.15, strike);
+    if (height > width) c.drawLine(s * 0.15, s * 0.2, width - s * 0.15, height - s * 0.2, strike);
+    else c.drawLine(s * 0.2, height - s * 0.15, width - s * 0.2, s * 0.15, strike);
   }
+}
+
+/** Straight ship drawn standalone (illustrations), horizontal or vertical. */
+export function drawShipIcon(c: SkCanvas, defId: string, len: number, s: number, opts: ShipDrawOptions & { vertical?: boolean } = {}) {
+  const cells = Array.from({ length: len }, (_, i) => (opts.vertical ? { x: 0, y: i } : { x: i, y: 0 }));
+  drawShipShape(c, defId, cells, opts.vertical ? 90 : 0, s, opts);
 }

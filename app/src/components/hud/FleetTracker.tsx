@@ -1,6 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native';
-import type { RuleSet } from '@shared/engine';
-import { drawShipIcon } from '@/art/ships';
+import { type RuleSet, shapeCells } from '@shared/engine';
+import { drawShipShape, shipIconSize } from '@/art/ships';
 import { SkiaIcon } from '@/art/SkiaIcon';
 import { colors, text } from '@/theme';
 
@@ -12,22 +12,25 @@ export function FleetTracker({ rules, lost, label, unit = 9 }: { rules: RuleSet;
       const idx = remainingLost.indexOf(def.id);
       const sunk = idx !== -1;
       if (sunk) remainingLost.splice(idx, 1);
-      return { key: `${def.id}#${i}`, defId: def.id, len: def.cells.length, sunk };
+      return { key: `${def.id}#${i}`, defId: def.id, cells: shapeCells(def, 0), sunk };
     }),
   );
   return (
     <View style={styles.wrap} accessibilityLabel={`${items.filter((i) => !i.sunk).length} enemy ships remaining`}>
       {label ? <Text style={[text.label, { marginRight: 6 }]}>{label}</Text> : null}
-      {items.map((it) => (
-        <View key={it.key} style={{ opacity: it.sunk ? 0.75 : 1 }}>
-          <SkiaIcon
-            cacheKey={`fleet:${it.defId}:${it.len}:${unit}:${it.sunk ? 1 : 0}`}
-            width={it.len * unit}
-            height={unit}
-            draw={(c) => drawShipIcon(c, it.defId, it.len, unit, { silhouette: true, sunk: it.sunk })}
-          />
-        </View>
-      ))}
+      {items.map((it) => {
+        const { width, height } = shipIconSize(it.cells, unit);
+        return (
+          <View key={it.key} style={{ opacity: it.sunk ? 0.75 : 1 }}>
+            <SkiaIcon
+              cacheKey={`fleet:${it.defId}:${it.cells.length}:${unit}:${it.sunk ? 1 : 0}`}
+              width={width}
+              height={height}
+              draw={(c) => drawShipShape(c, it.defId, it.cells, 0, unit, { silhouette: true, sunk: it.sunk })}
+            />
+          </View>
+        );
+      })}
     </View>
   );
 }

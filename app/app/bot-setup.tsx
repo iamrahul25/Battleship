@@ -45,7 +45,7 @@ export default function BotSetup() {
   const [boardSize, setBoardSize] = useState(clampBoardSize(settings.boardSize));
   const [customSize, setCustomSize] = useState(!PRESET_IDS.some((id) => BoardSizePresets[id] === settings.boardSize));
   const sizeChoice: SizeChoice = customSize ? 'custom' : (PRESET_IDS.find((id) => BoardSizePresets[id] === boardSize) ?? 'custom');
-  const sizeRules = createRules(boardRules(boardSize));
+  const sizeRules = createRules(boardRules(boardSize, mode));
 
   const chooseSize = (choice: SizeChoice) => {
     setCustomSize(choice === 'custom');
@@ -110,8 +110,8 @@ export default function BotSetup() {
         value={mode}
         onChange={setMode}
         options={[
-          { value: 'classic', label: 'CLASSIC', hint: 'Pure cannon fire' },
-          { value: 'arsenal', label: 'ARSENAL', hint: 'Artillery & sonar' },
+          { value: 'classic', label: 'CLASSIC', hint: 'Straight ships, cannon only' },
+          { value: 'arsenal', label: 'ARSENAL', hint: 'T/L/Z ships, power-ups' },
         ]}
       />
 

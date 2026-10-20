@@ -18,6 +18,7 @@ import {
   getPublicView,
   GridPresets,
   isFleetSunk,
+  isStraightShip,
   key,
   legalTargets,
   makePlacedShip,
@@ -33,6 +34,7 @@ import {
   resolveSonar,
   rulesForMode,
   shapeCells,
+  SHAPED_SHIPS,
   totalShipCells,
   totalShips,
   uniqueRotations,
@@ -56,15 +58,43 @@ describe('config', () => {
     expect(fleetForSize(10)).toBe(CLASSIC_FLEET);
     expect(boardRules(3).grid).toEqual({ width: BOARD_SIZE_MIN, height: BOARD_SIZE_MIN });
     expect(boardRules(99).grid).toEqual({ width: BOARD_SIZE_MAX, height: BOARD_SIZE_MAX });
-    let prevShips = 0;
-    for (let n = BOARD_SIZE_MIN; n <= BOARD_SIZE_MAX; n++) {
-      const r = createRules(boardRules(n));
-      const density = totalShipCells(r) / (n * n);
-      expect(density).toBeGreaterThan(0.14);
-      expect(density).toBeLessThan(0.2);
-      expect(totalShips(r)).toBeGreaterThanOrEqual(prevShips);
-      prevShips = totalShips(r);
+    for (const mode of ['classic', 'arsenal'] as const) {
+      let prevShips = 0;
+      for (let n = BOARD_SIZE_MIN; n <= BOARD_SIZE_MAX; n++) {
+        const r = createRules(boardRules(n, mode));
+        const density = totalShipCells(r) / (n * n);
+        expect(density).toBeGreaterThan(0.14);
+        expect(density).toBeLessThan(mode === 'classic' ? 0.2 : 0.21);
+        expect(totalShips(r)).toBeGreaterThanOrEqual(prevShips);
+        prevShips = totalShips(r);
+      }
     }
+  });
+  it('classic fleets are straight; arsenal mixes in T, L and Z ships', () => {
+    for (let n = BOARD_SIZE_MIN; n <= BOARD_SIZE_MAX; n++) {
+      expect(fleetForSize(n).every(isStraightShip)).toBe(true);
+      const ids = fleetForSize(n, 'arsenal').map((d) => d.id);
+      expect(ids).toContain(SHAPED_SHIPS.T.id);
+      if (n >= 9) for (const s of Object.values(SHAPED_SHIPS)) expect(ids).toContain(s.id);
+    }
+    for (const s of Object.values(SHAPED_SHIPS)) {
+      expect(isStraightShip(s)).toBe(false);
+      expect(uniqueRotations(s)).toHaveLength(s.id === SHAPED_SHIPS.Z.id ? 2 : 4);
+    }
+  });
+  it('validateFleet accepts shaped ships in every rotation', () => {
+    const r = createRules(boardRules(10, 'arsenal'));
+    for (let seed = 0; seed < 300; seed++) {
+      const ships = randomFleet(r, createRng(seed));
+      const input = ships.map((s) => ({ defId: s.defId, origin: s.origin, rotation: s.rotation }));
+      const v = validateFleet(r, input);
+      expect(v.ok).toBe(true);
+      if (v.ok) expect(v.ships.map((s) => s.cells)).toEqual(ships.map((s) => s.cells));
+    }
+    const rotations = new Set<number>();
+    for (let seed = 0; seed < 300; seed++)
+      for (const s of randomFleet(r, createRng(seed))) if (s.defId === SHAPED_SHIPS.T.id) rotations.add(s.rotation);
+    expect([...rotations].sort()).toEqual([0, 180, 270, 90]);
   });
   it('modes toggle power-ups', () => {
     expect(rulesForMode('classic').powerUpsEnabled).toBe(false);
@@ -158,8 +188,13 @@ describe('placement', () => {
   });
   it('randomFleet works for every board size, touching or not', () => {
     for (let n = BOARD_SIZE_MIN; n <= BOARD_SIZE_MAX; n++) {
-      for (const allowTouching of [false, true]) {
-        const r = createRules({ ...boardRules(n), allowTouching });
+      for (const [allowTouching, mode] of [
+        [false, 'classic'],
+        [true, 'classic'],
+        [false, 'arsenal'],
+        [true, 'arsenal'],
+      ] as const) {
+        const r = createRules({ ...boardRules(n, mode), allowTouching });
         for (let seed = 0; seed < 50; seed++) {
           const ships = randomFleet(r, createRng(seed));
           expect(validateFleet(r, ships.map((s) => ({ defId: s.defId, origin: s.origin, rotation: s.rotation }))).ok).toBe(true);

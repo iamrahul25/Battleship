@@ -36,6 +36,12 @@ export function gridGeometry(size: number, cols: number, rows: number, showLabel
   return { cell, gutter, gridW: cell * cols, gridH: cell * rows };
 }
 
+/** Coordinate label font size that keeps two-digit row numbers on one line inside the gutter. */
+export function labelFontSize(cell: number, gutter: number, rows: number, max = 14) {
+  const digits = String(rows).length;
+  return Math.max(7, Math.min(max, cell * 0.42, gutter / (digits * 0.62)));
+}
+
 function Reticle({ c, s, tone }: { c: Coord; s: number; tone: 'attack' | 'scan' }) {
   const pulse = useSharedValue(0);
   useEffect(() => {
@@ -126,7 +132,7 @@ function BattleGridImpl({
 
   const letters = Array.from({ length: board.width }, (_, i) => String.fromCharCode(65 + i));
   const numbers = Array.from({ length: board.height }, (_, i) => String(i + 1));
-  const labelSize = Math.max(8, Math.min(14, s * 0.42));
+  const labelSize = labelFontSize(s, gutter, board.height);
 
   return (
     <View style={{ width: gutter + gridW, height: gutter + gridH }}>
@@ -141,7 +147,7 @@ function BattleGridImpl({
           </View>
           <View style={[styles.col, { top: gutter, width: gutter, height: gridH }]} pointerEvents="none">
             {numbers.map((n) => (
-              <Text key={n} style={[styles.label, { height: s, lineHeight: s, fontSize: labelSize, width: gutter }]}>
+              <Text key={n} numberOfLines={1} style={[styles.label, { height: s, lineHeight: s, fontSize: labelSize, width: gutter }]}>
                 {n}
               </Text>
             ))}
