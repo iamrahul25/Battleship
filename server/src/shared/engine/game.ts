@@ -1,6 +1,17 @@
 import { resolveShot, resolveSonar } from './attack';
-import { cloneBoard, createBoard, inBounds, isFleetSunk, isShipSunk, isTargetable, legalTargets } from './board';
+import {
+  cloneBoard,
+  createBoard,
+  inBounds,
+  isFleetSunk,
+  isShipSunk,
+  isSolidObstacle,
+  isTargetable,
+  legalTargets,
+  obstacleAt,
+} from './board';
 import { CHARGE, MAX_CONSECUTIVE_TIMEOUTS } from './config';
+import { generateObstacles, obstacleFields, visibleObstacles } from './obstacles';
 import { isFleetComplete, randomFleet, validateFleet } from './placement';
 import { createRng, type Rng } from './rng';
 import type {
@@ -12,6 +23,7 @@ import type {
   GameErrorCode,
   GameEvent,
   GameState,
+  PlacedShip,
   PlayerIndex,
   PlayerPublicInfo,
   PlayerState,
@@ -25,9 +37,9 @@ import { canUseWeapon, getWeapon, patternCells } from './weapons';
 
 export const other = (p: PlayerIndex): PlayerIndex => (p === 0 ? 1 : 0);
 
-export function createPlayerState(rules: RuleSet): PlayerState {
+export function createPlayerState(rules: RuleSet, rng?: Rng): PlayerState {
   return {
-    board: createBoard(rules.grid.width, rules.grid.height),
+    board: { ...createBoard(rules.grid.width, rules.grid.height), ...obstacleFields(rng ? generateObstacles(rules, rng) : undefined) },
     ready: false,
     charge: 0,
     weaponUses: {},
@@ -41,17 +53,24 @@ export function createPlayerState(rules: RuleSet): PlayerState {
 }
 
 export function createGame(rules: RuleSet, seed: number): GameState {
+  const rng = createRng(seed);
   return {
     rules,
     phase: 'placement',
-    players: [createPlayerState(rules), createPlayerState(rules)],
+    players: [createPlayerState(rules, rng), createPlayerState(rules, rng)],
     activePlayer: 0,
     turnNumber: 0,
     winner: null,
     finishReason: null,
     log: [],
-    rngState: seed >>> 0,
+    rngState: rng.state,
   };
+}
+
+/** Fresh board for a validated fleet, keeping the player's obstacles. */
+function fleetBoard(state: GameState, player: PlayerIndex, ships: PlacedShip[]): Board {
+  const { width, height } = state.rules.grid;
+  return { ...createBoard(width, height), ...obstacleFields(state.players[player].board.obstacles), ships };
 }
 
 /** Mutable working copy used inside a single reducer call. */
@@ -117,8 +136,13 @@ function pushShot(d: Draft, shot: Omit<ShotEvent, 'turnNumber'>) {
     return;
   }
   if (ev.turnPassed) {
-    d.state.activePlayer = defender;
     d.state.turnNumber += 1;
+    if (d.state.players[defender].skipNextTurn) {
+      setPlayer(d, defender, { skipNextTurn: false });
+      ev.turnSkipped = defender;
+    } else {
+      d.state.activePlayer = defender;
+    }
   }
 }
 
@@ -129,12 +153,14 @@ function fireStandard(d: Draft, player: PlayerIndex, target: Coord, auto: boolea
 
   const attacker = d.state.players[player];
   const isHit = resolved.result.result !== 'miss';
+  const mineTriggered = resolved.result.obstacle === 'mine';
   const patch: Partial<PlayerState> = {
     shotsFired: attacker.shotsFired + 1,
     hits: attacker.hits + (isHit ? 1 : 0),
     shipsSunk: attacker.shipsSunk + (resolved.result.result === 'sunk' ? 1 : 0),
     consecutiveTimeouts: auto ? attacker.consecutiveTimeouts : 0,
   };
+  if (mineTriggered) patch.skipNextTurn = true;
   if (d.state.rules.powerUpsEnabled) {
     if (isHit) {
       patch.missStreak = 0;
@@ -155,6 +181,7 @@ function fireStandard(d: Draft, player: PlayerIndex, target: Coord, auto: boolea
     knownEmpty: resolved.knownEmpty.length ? resolved.knownEmpty : undefined,
     turnPassed: !isHit || !d.state.rules.bonusShotOnHit,
     auto: auto || undefined,
+    mineTriggered: mineTriggered || undefined,
   });
 }
 
@@ -174,10 +201,11 @@ export function applyAction(state: GameState, action: Action): ActionResult {
       const v = validateFleet(
         state.rules,
         action.ships.map((s) => ({ defId: s.defId, origin: s.origin, rotation: s.rotation })),
+        p.board.obstacles,
       );
       if (!v.ok) return fail(state, 'INVALID_PLACEMENT');
       const d = startDraft(state);
-      setPlayer(d, action.player, { board: { ...createBoard(state.rules.grid.width, state.rules.grid.height), ships: v.ships } });
+      setPlayer(d, action.player, { board: fleetBoard(state, action.player, v.ships) });
       d.events.push({ type: 'fleetPlaced', player: action.player });
       return finishDraft(d);
     }
@@ -197,6 +225,7 @@ export function applyAction(state: GameState, action: Action): ActionResult {
       if (err) return fail(state, err);
       const board = state.players[other(action.player)].board;
       if (!inBounds(board, action.target)) return fail(state, 'OUT_OF_BOUNDS');
+      if (isSolidObstacle(obstacleAt(board, action.target))) return fail(state, 'BLOCKED');
       if (!isTargetable(board, action.target)) return fail(state, 'ALREADY_FIRED');
       const d = startDraft(state);
       fireStandard(d, action.player, action.target, false);
@@ -251,12 +280,14 @@ export function applyAction(state: GameState, action: Action): ActionResult {
         knownEmpty.push(...r.knownEmpty);
       }
       const hits = results.filter((r) => r.result !== 'miss').length;
+      const mineTriggered = results.some((r) => r.obstacle === 'mine');
       setPlayer(d, defenderIdx, { board: current });
       setPlayer(d, action.player, {
         ...usage,
         shotsFired: attacker.shotsFired + results.length,
         hits: attacker.hits + hits,
         shipsSunk: attacker.shipsSunk + results.filter((r) => r.result === 'sunk').length,
+        ...(mineTriggered ? { skipNextTurn: true } : {}),
       });
       pushShot(d, {
         by: action.player,
@@ -265,6 +296,7 @@ export function applyAction(state: GameState, action: Action): ActionResult {
         results,
         knownEmpty: knownEmpty.length ? knownEmpty : undefined,
         turnPassed: true,
+        mineTriggered: mineTriggered || undefined,
       });
       return finishDraft(d);
     }
@@ -275,8 +307,8 @@ export function applyAction(state: GameState, action: Action): ActionResult {
         if (p.ready) return fail(state, 'ALREADY_READY');
         const d = startDraft(state);
         if (!isFleetComplete(p.board, state.rules)) {
-          const ships = randomFleet(state.rules, d.rng);
-          setPlayer(d, action.player, { board: { ...createBoard(state.rules.grid.width, state.rules.grid.height), ships } });
+          const ships = randomFleet(state.rules, d.rng, { obstacles: p.board.obstacles });
+          setPlayer(d, action.player, { board: fleetBoard(state, action.player, ships) });
           d.events.push({ type: 'fleetPlaced', player: action.player });
         }
         markReady(d, action.player);
@@ -313,6 +345,7 @@ export function redactBoard(board: Board, reveal: boolean): TargetView {
     height: board.height,
     shots: { ...board.shots },
     ships: ships.map((s) => ({ ...s, origin: { ...s.origin }, cells: s.cells.map((c) => ({ ...c })) })),
+    ...obstacleFields(visibleObstacles(board, reveal)),
   };
 }
 

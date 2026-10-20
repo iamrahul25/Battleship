@@ -11,6 +11,7 @@ import {
   createRules,
   type Difficulty,
   type GameMode,
+  type ObstacleLevel,
   totalShipCells,
   totalShips,
 } from '@shared/engine';
@@ -43,6 +44,7 @@ export default function BotSetup() {
   const [bonus, setBonus] = useState(settings.bonusShotOnHit);
   const [touching, setTouching] = useState(settings.allowTouching);
   const [boardSize, setBoardSize] = useState(clampBoardSize(settings.boardSize));
+  const [obstacles, setObstacles] = useState<ObstacleLevel>(settings.obstacles);
   const [customSize, setCustomSize] = useState(!PRESET_IDS.some((id) => BoardSizePresets[id] === settings.boardSize));
   const sizeChoice: SizeChoice = customSize ? 'custom' : (PRESET_IDS.find((id) => BoardSizePresets[id] === boardSize) ?? 'custom');
   const sizeRules = createRules(boardRules(boardSize, mode));
@@ -54,7 +56,7 @@ export default function BotSetup() {
 
   const start = () => {
     void clearSavedGame();
-    settings.set({ boardSize });
+    settings.set({ boardSize, obstacles });
     const controller = new LocalGameController({
       difficulty,
       mode,
@@ -62,6 +64,7 @@ export default function BotSetup() {
       allowTouching: touching,
       offlineTimer: settings.offlineTimer,
       boardSize,
+      obstacles,
       me: { name: profile.nickname || 'You', avatarId: profile.avatarId, wins: 0, losses: 0, connected: true },
     });
     useMatchStore.getState().attach(controller);
@@ -137,6 +140,20 @@ export default function BotSetup() {
       )}
       <Text style={[text.caption, { marginTop: 6 }]}>
         {totalShips(sizeRules)} ships · {totalShipCells(sizeRules)} ship cells on a {boardSize}×{boardSize} grid
+      </Text>
+
+      <Text style={styles.section}>OBSTACLES</Text>
+      <Segmented
+        value={obstacles}
+        onChange={setObstacles}
+        options={[
+          { value: 'none', label: 'NONE', hint: 'Open sea' },
+          { value: 'few', label: 'FEW', hint: 'A scattering' },
+          { value: 'many', label: 'MANY', hint: 'Crowded waters' },
+        ]}
+      />
+      <Text style={[text.caption, { marginTop: 6 }]}>
+        Rocks and islands can&apos;t be shot · reefs are visible · hidden mines make the shooter skip a turn
       </Text>
 
       <Panel title="Rules" style={{ marginTop: 16 }}>

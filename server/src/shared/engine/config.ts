@@ -1,4 +1,4 @@
-import type { RuleSet, ShipDef } from './types';
+import type { ObstacleLevel, RuleSet, ShipDef } from './types';
 
 const line = (length: number) => Array.from({ length }, (_, x) => ({ x, y: 0 }));
 
@@ -185,6 +185,8 @@ export function createRules(overrides: Partial<RuleSet> = {}): RuleSet {
     fleet: overrides.fleet ?? DEFAULT_RULES.fleet,
   };
 }
+
+export const OBSTACLE_LEVELS: ObstacleLevel[] = ['none', 'few', 'many'];
 
 export function rulesForMode(mode: GameMode, overrides: Partial<RuleSet> = {}): RuleSet {
   return createRules({ powerUpsEnabled: mode === 'arsenal', ...overrides });

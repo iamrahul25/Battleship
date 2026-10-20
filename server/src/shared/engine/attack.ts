@@ -1,4 +1,4 @@
-import { cellAt, inBounds, isShipSunk, key, neighbours8, sameCoord } from './board';
+import { cellAt, inBounds, isShipSunk, isSolidObstacle, key, neighbours8, obstacleAt, sameCoord } from './board';
 import type { Board, Coord, RuleSet, ShotResult, SonarResult } from './types';
 
 export interface ResolvedShot {
@@ -16,7 +16,10 @@ export function resolveShot(board: Board, coord: Coord, rules: Pick<RuleSet, 'al
   const shipIndex = board.ships.findIndex((s) => s.cells.some((c) => sameCoord(c, coord)));
   if (shipIndex === -1) {
     shots[key(coord)] = 'miss';
-    return { board: { ...board, shots }, result: { coord, result: 'miss' }, knownEmpty: [] };
+    const obstacle = obstacleAt(board, coord);
+    const result: ShotResult = { coord, result: 'miss' };
+    if (obstacle === 'reef' || obstacle === 'mine') result.obstacle = obstacle;
+    return { board: { ...board, shots }, result, knownEmpty: [] };
   }
 
   const ships = board.ships.slice();
@@ -30,7 +33,7 @@ export function resolveShot(board: Board, coord: Coord, rules: Pick<RuleSet, 'al
     if (!rules.allowTouching) {
       for (const c of ship.cells) {
         for (const n of neighbours8(board, c)) {
-          if (cellAt({ shots }, n) === 'unknown') {
+          if (cellAt({ shots }, n) === 'unknown' && !isSolidObstacle(obstacleAt(board, n))) {
             shots[key(n)] = 'knownEmpty';
             knownEmpty.push(n);
           }

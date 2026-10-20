@@ -12,6 +12,8 @@ import {
   fleetInstances,
   inBounds,
   makePlacedShip,
+  type ObstacleKind,
+  obstacleFields,
   type PlacedShip,
   randomFleet,
   randomSeed,
@@ -34,6 +36,8 @@ import { Water } from '../grid/Water';
 
 interface Props {
   rules: RuleSet;
+  /** This player's obstacles; ships can't be placed on them. */
+  obstacles?: Record<string, ObstacleKind>;
   size: number;
   ships: PlacedShip[];
   onChange: (ships: PlacedShip[]) => void;
@@ -63,7 +67,7 @@ const shapeSignature = (def: ShipDef, r: Rotation) =>
     .join('|');
 const sameShape = (def: ShipDef, a: Rotation, b: Rotation) => shapeSignature(def, a) === shapeSignature(def, b);
 
-export function PlacementEditor({ rules, size, ships, onChange, disabled, reducedMotion }: Props) {
+export function PlacementEditor({ rules, obstacles, size, ships, onChange, disabled, reducedMotion }: Props) {
   const { cell: s, gutter, gridW, gridH } = gridGeometry(size, rules.grid.width, rules.grid.height, true);
   const labelSize = labelFontSize(s, gutter, rules.grid.height, 12);
   const [rootW, setRootW] = useState(size);
@@ -92,7 +96,10 @@ export function PlacementEditor({ rules, size, ships, onChange, disabled, reduce
   const placedUids = new Set(ships.map((sh) => sh.uid));
   const unplaced = instances.filter((i) => !placedUids.has(i.uid));
 
-  const board = useMemo(() => ({ ...createBoard(rules.grid.width, rules.grid.height), ships }), [rules, ships]);
+  const board = useMemo(
+    () => ({ ...createBoard(rules.grid.width, rules.grid.height), ...obstacleFields(obstacles), ships }),
+    [rules, obstacles, ships],
+  );
   const ghost = useMemo(() => {
     if (!drag || !hover) return null;
     return { ship: makePlacedShip(drag.def, drag.index, hover.origin, drag.rotation), valid: hover.valid };
@@ -413,8 +420,8 @@ function DockShip({
   );
 }
 
-export function randomPlacement(rules: RuleSet) {
-  return randomFleet(rules, createRng(randomSeed()));
+export function randomPlacement(rules: RuleSet, obstacles?: Record<string, ObstacleKind>) {
+  return randomFleet(rules, createRng(randomSeed()), { obstacles });
 }
 
 const styles = StyleSheet.create({

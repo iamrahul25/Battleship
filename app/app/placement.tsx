@@ -30,6 +30,7 @@ export default function Placement() {
   const [confirmLeave, setConfirmLeave] = useState(false);
 
   const rules = controller?.rules;
+  const obstacles = view?.myBoard.obstacles;
   const contentW = Math.min(width - 32, 520);
   const gridSize = Math.max(240, Math.min(contentW, height - 340));
 
@@ -90,7 +91,15 @@ export default function Placement() {
       )}
 
       <View style={{ flex: 1, justifyContent: 'center' }}>
-        <PlacementEditor rules={rules} size={gridSize} ships={ships} onChange={setShips} disabled={submitted} reducedMotion={reduced} />
+        <PlacementEditor
+          rules={rules}
+          obstacles={obstacles}
+          size={gridSize}
+          ships={ships}
+          onChange={setShips}
+          disabled={submitted}
+          reducedMotion={reduced}
+        />
       </View>
 
       <View style={styles.actions}>
@@ -101,7 +110,7 @@ export default function Placement() {
           onPress={() => {
             playSound('rotate');
             haptic('light');
-            setShips(randomPlacement(rules));
+            setShips(randomPlacement(rules, obstacles));
           }}
           style={[styles.iconBtn, submitted && { opacity: 0.4 }]}
           testID="randomize"

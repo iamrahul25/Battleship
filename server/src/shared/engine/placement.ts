@@ -1,6 +1,7 @@
 import { createBoard, inBounds, key, neighbours8 } from './board';
+import { obstacleFields } from './obstacles';
 import type { Rng } from './rng';
-import type { Board, Coord, PlacedShip, Rotation, RuleSet, ShipDef } from './types';
+import type { Board, Coord, ObstacleKind, PlacedShip, Rotation, RuleSet, ShipDef } from './types';
 
 export const ROTATIONS: Rotation[] = [0, 90, 180, 270];
 
@@ -54,7 +55,7 @@ export function shapeSize(def: Pick<ShipDef, 'cells'>, rotation: Rotation) {
   };
 }
 
-export type PlacementError = 'OUT_OF_BOUNDS' | 'OVERLAP' | 'TOUCHING';
+export type PlacementError = 'OUT_OF_BOUNDS' | 'OVERLAP' | 'TOUCHING' | 'OBSTACLE';
 
 function blockedSets(board: Board, rules: RuleSet, ignoreUid?: string) {
   const occupied = new Set<string>();
@@ -79,6 +80,7 @@ export function placementError(
 ): PlacementError | null {
   const cells = shipCells(def, origin, rotation);
   if (!cells.every((c) => inBounds(board, c))) return 'OUT_OF_BOUNDS';
+  if (cells.some((c) => board.obstacles?.[key(c)])) return 'OBSTACLE';
   const { occupied, halo } = blockedSets(board, rules, ignoreUid);
   if (cells.some((c) => occupied.has(key(c)))) return 'OVERLAP';
   if (cells.some((c) => halo.has(key(c)))) return 'TOUCHING';
@@ -142,9 +144,10 @@ export interface FleetInput {
 export function validateFleet(
   rules: RuleSet,
   input: FleetInput[],
+  obstacles?: Record<string, ObstacleKind>,
 ): { ok: true; ships: PlacedShip[] } | { ok: false; reason: string } {
   const counts = new Map<string, number>();
-  let board = createBoard(rules.grid.width, rules.grid.height);
+  let board: Board = { ...createBoard(rules.grid.width, rules.grid.height), ...obstacleFields(obstacles) };
   for (const item of input) {
     const def = findDef(rules, item.defId);
     if (!def) return { ok: false, reason: `Unknown ship ${item.defId}` };
@@ -177,7 +180,7 @@ export function placementCandidates(board: Board, def: ShipDef, rules: RuleSet):
     for (let y = 0; y + size.height <= board.height; y++) {
       for (let x = 0; x + size.width <= board.width; x++) {
         const cells = shipCells(def, { x, y }, rotation);
-        if (cells.some((c) => occupied.has(key(c)) || halo.has(key(c)))) continue;
+        if (cells.some((c) => occupied.has(key(c)) || halo.has(key(c)) || board.obstacles?.[key(c)])) continue;
         out.push({ origin: { x, y }, rotation, cells });
       }
     }
@@ -189,6 +192,8 @@ export interface RandomFleetOptions {
   /** Relative weight of a candidate placement (> 0). Defaults to uniform. */
   weight?: (candidate: Candidate, placed: PlacedShip[], board: Board) => number;
   maxAttempts?: number;
+  /** Obstacles already on the board; ships are placed around them. */
+  obstacles?: Record<string, ObstacleKind>;
 }
 
 function weightedPick<T>(items: T[], weights: number[], rng: Rng): T {
@@ -206,7 +211,7 @@ export function randomFleet(rules: RuleSet, rng: Rng, options: RandomFleetOption
   const maxAttempts = options.maxAttempts ?? 500;
   const instances = fleetInstances(rules);
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    let board = createBoard(rules.grid.width, rules.grid.height);
+    let board: Board = { ...createBoard(rules.grid.width, rules.grid.height), ...obstacleFields(options.obstacles) };
     let failed = false;
     for (const inst of instances) {
       const candidates = placementCandidates(board, inst.def, rules);

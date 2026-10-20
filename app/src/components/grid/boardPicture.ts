@@ -1,6 +1,7 @@
 import type { SkCanvas } from '@shopify/react-native-skia';
-import { type CellState, type Coord, key, type PlacedShip } from '@shared/engine';
+import { type CellState, type Coord, key, type ObstacleKind, type PlacedShip } from '@shared/engine';
 import { paint, radial, record } from '@/art/draw';
+import { drawObstacles } from '@/art/obstacles';
 import { drawShip } from '@/art/ships';
 import { colors } from '@/theme';
 
@@ -9,6 +10,7 @@ export interface BoardLike {
   height: number;
   shots: Record<string, CellState>;
   ships: PlacedShip[];
+  obstacles?: Record<string, ObstacleKind>;
 }
 
 export interface BoardPictureOptions {
@@ -55,6 +57,7 @@ export function boardPicture(board: BoardLike, s: number, opts: BoardPictureOpti
   const H = board.height * s;
   return record(W, H, (c) => {
     drawGrid(c, board.width, board.height, s);
+    drawObstacles(c, board.obstacles, board.shots, s);
 
     for (const k of Object.keys(board.shots)) {
       if (board.shots[k] !== 'knownEmpty') continue;
@@ -79,7 +82,7 @@ export function boardPicture(board: BoardLike, s: number, opts: BoardPictureOpti
       const [x, y] = k.split(',').map(Number);
       const cx = (x + 0.5) * s;
       const cy = (y + 0.5) * s;
-      if (st === 'miss') drawMiss(c, cx, cy, s);
+      if (st === 'miss' && board.obstacles?.[k] !== 'mine') drawMiss(c, cx, cy, s);
       else if (st === 'hit' || st === 'sunk') drawHitPeg(c, cx, cy, s * (st === 'sunk' ? 0.8 : 1));
     }
   });

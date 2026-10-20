@@ -1,5 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native';
-import { CHARGE, SHAPED_SHIPS, shapeCells, WEAPONS } from '@shared/engine';
+import { CHARGE, type ObstacleKind, SHAPED_SHIPS, shapeCells, WEAPONS } from '@shared/engine';
+import { drawObstacleIcon } from '@/art/obstacles';
 import { drawMiss, drawHitPeg } from '@/components/grid/boardPicture';
 import { drawShipIcon, drawShipShape, shipIconSize } from '@/art/ships';
 import { paint } from '@/art/draw';
@@ -14,6 +15,13 @@ const FLEET = [
   { id: 'cruiser', name: 'Cruiser', len: 3 },
   { id: 'submarine', name: 'Submarine', len: 3 },
   { id: 'destroyer', name: 'Destroyer', len: 2 },
+];
+
+const OBSTACLE_HELP: { kind: ObstacleKind; name: string; text: string }[] = [
+  { kind: 'rock', name: 'Rock', text: "Visible. Can't be fired at." },
+  { kind: 'island', name: 'Island', text: "2–3 cells of land. Visible. Can't be fired at." },
+  { kind: 'reef', name: 'Reef', text: 'Visible. A shot on a reef is a miss.' },
+  { kind: 'mine', name: 'Mine', text: 'Hidden from the enemy. Hit one and you skip your next turn.' },
 ];
 
 function Marker({ kind }: { kind: 'miss' | 'hit' | 'empty' }) {
@@ -97,6 +105,18 @@ export default function HowToPlay() {
           </View>
         </View>
         <Text style={styles.p}>Online turns last 30 seconds. Miss three turns in a row and you forfeit.</Text>
+      </Panel>
+
+      <Panel title="Obstacles" style={styles.panel}>
+        <Text style={styles.p}>Bot games can scatter obstacles on both boards. Ships can&apos;t be placed on them.</Text>
+        {OBSTACLE_HELP.map((o) => (
+          <View key={o.kind} style={styles.shipRow}>
+            <SkiaIcon cacheKey={`help:obstacle:${o.kind}`} width={28} height={28} draw={(c) => drawObstacleIcon(c, o.kind, 28)} />
+            <Text style={[styles.p, { flex: 1 }]}>
+              <Text style={styles.shipName}>{o.name}</Text> · {o.text}
+            </Text>
+          </View>
+        ))}
       </Panel>
 
       <Panel title="Arsenal mode" accent="brass" style={styles.panel}>

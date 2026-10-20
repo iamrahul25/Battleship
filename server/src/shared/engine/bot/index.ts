@@ -1,5 +1,5 @@
 import type { Rng } from '../rng';
-import type { PlacedShip, RuleSet } from '../types';
+import type { ObstacleKind, PlacedShip, RuleSet } from '../types';
 import type { BotAction, BotView, Difficulty } from './common';
 import { easyChoose } from './easy';
 import { hardChoose } from './hard';
@@ -12,7 +12,8 @@ export { botPlaceFleet, layoutSignature, spreadScore } from './placement';
 
 export interface Bot {
   difficulty: Difficulty;
-  placeFleet(): PlacedShip[];
+  /** Places the fleet around the bot's own obstacles, if any. */
+  placeFleet(obstacles?: Record<string, ObstacleKind>): PlacedShip[];
   chooseAction(view: BotView): BotAction;
   /** Randomized "thinking" delay so turns feel natural. */
   thinkDelayMs(): number;
@@ -38,7 +39,7 @@ export function createBot(difficulty: Difficulty, rules: RuleSet, rng: Rng): Bot
   const choose = difficulty === 'easy' ? easyChoose : difficulty === 'medium' ? mediumChoose : hardChoose;
   return {
     difficulty,
-    placeFleet: () => botPlaceFleet(difficulty, rules, rng),
+    placeFleet: (obstacles) => botPlaceFleet(difficulty, rules, rng, obstacles),
     chooseAction: (view) => choose(view, rng),
     thinkDelayMs: () => 600 + Math.floor(rng.next() * 800),
   };

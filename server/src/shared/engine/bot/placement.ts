@@ -1,7 +1,7 @@
 import { key, neighbours8 } from '../board';
 import { randomFleet } from '../placement';
 import type { Rng } from '../rng';
-import type { PlacedShip, RuleSet } from '../types';
+import type { ObstacleKind, PlacedShip, RuleSet } from '../types';
 import type { Difficulty } from './common';
 
 /** Sum over ship pairs of the (capped) Chebyshev gap between them: higher = more spread out. */
@@ -27,14 +27,19 @@ export function layoutSignature(ships: PlacedShip[]): string {
 
 let lastHardSignature: string | null = null;
 
-export function botPlaceFleet(difficulty: Difficulty, rules: RuleSet, rng: Rng): PlacedShip[] {
-  if (difficulty === 'easy') return randomFleet(rules, rng);
+export function botPlaceFleet(
+  difficulty: Difficulty,
+  rules: RuleSet,
+  rng: Rng,
+  obstacles?: Record<string, ObstacleKind>,
+): PlacedShip[] {
+  if (difficulty === 'easy') return randomFleet(rules, rng, { obstacles });
 
   if (difficulty === 'medium') {
-    let best: PlacedShip[] = randomFleet(rules, rng);
+    let best: PlacedShip[] = randomFleet(rules, rng, { obstacles });
     let bestScore = spreadScore(best);
     for (let i = 0; i < 5; i++) {
-      const f = randomFleet(rules, rng);
+      const f = randomFleet(rules, rng, { obstacles });
       const s = spreadScore(f);
       if (s > bestScore) {
         best = f;
@@ -52,6 +57,7 @@ export function botPlaceFleet(difficulty: Difficulty, rules: RuleSet, rng: Rng):
     for (let i = 0; i < 4; i++) {
       candidates.push(
         randomFleet(rules, rng, {
+          obstacles,
           weight: (cand, placed, board) => {
             const edgeCells = cand.cells.filter((c) => c.x === 0 || c.y === 0 || c.x === width - 1 || c.y === height - 1).length;
             const near = new Set(placed.flatMap((p) => p.cells.flatMap((c) => neighbours8(board, c).map(key))));
@@ -69,5 +75,5 @@ export function botPlaceFleet(difficulty: Difficulty, rules: RuleSet, rng: Rng):
       return pick;
     }
   }
-  return randomFleet(rules, rng);
+  return randomFleet(rules, rng, { obstacles });
 }

@@ -33,10 +33,18 @@ export function remainingFleetFor(rules: RuleSet, target: TargetView): ShipDef[]
   return out;
 }
 
+/** Visible obstacles can never hold a ship, so bots treat their unfired cells as known water. */
+export function withObstaclesAsWater(target: TargetView): TargetView {
+  if (!target.obstacles) return target;
+  const shots = { ...target.shots };
+  for (const k of Object.keys(target.obstacles)) if (!shots[k]) shots[k] = 'knownEmpty';
+  return { ...target, shots };
+}
+
 export function botViewFromPublic(view: PublicView): BotView {
   return {
     rules: view.rules,
-    target: view.enemyBoard,
+    target: withObstaclesAsWater(view.enemyBoard),
     remainingFleet: remainingFleetFor(view.rules, view.enemyBoard),
     charge: view.me.charge,
     weaponUses: view.me.weaponUses,
@@ -46,7 +54,7 @@ export function botViewFromPublic(view: PublicView): BotView {
 }
 
 export function botViewFromTarget(rules: RuleSet, target: TargetView): BotView {
-  return { rules, target, remainingFleet: remainingFleetFor(rules, target), charge: 0, weaponUses: {}, sonar: [] };
+  return { rules, target: withObstaclesAsWater(target), remainingFleet: remainingFleetFor(rules, target), charge: 0, weaponUses: {}, sonar: [] };
 }
 
 export const unknownCells = (t: TargetView) => allCells(t).filter((c) => cellAt(t, c) === 'unknown');

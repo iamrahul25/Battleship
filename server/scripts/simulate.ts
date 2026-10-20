@@ -26,8 +26,12 @@ export function simulateGame(difficulty: Difficulty, seed: number, rules: RuleSe
   const rng = createRng(seed);
   const bot = createBot(difficulty, rules, createRng(seed ^ 0x9e3779b9));
   let state = createGame(rules, seed);
-  state = applyAction(state, { type: 'PLACE_FLEET', player: 0, ships: bot.placeFleet() }).state;
-  state = applyAction(state, { type: 'PLACE_FLEET', player: 1, ships: randomFleet(rules, rng) }).state;
+  state = applyAction(state, { type: 'PLACE_FLEET', player: 0, ships: bot.placeFleet(state.players[0].board.obstacles) }).state;
+  state = applyAction(state, {
+    type: 'PLACE_FLEET',
+    player: 1,
+    ships: randomFleet(rules, rng, { obstacles: state.players[1].board.obstacles }),
+  }).state;
   state = applyAction(state, { type: 'READY', player: 0 }).state;
   state = applyAction(state, { type: 'READY', player: 1 }).state;
 

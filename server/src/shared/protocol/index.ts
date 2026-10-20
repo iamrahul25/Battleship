@@ -124,7 +124,8 @@ export type ServerErrorCode =
   | 'ALREADY_READY'
   | 'WEAPON_NOT_READY'
   | 'WEAPON_UNKNOWN'
-  | 'POWERUPS_DISABLED';
+  | 'POWERUPS_DISABLED'
+  | 'BLOCKED';
 
 export const ERROR_MESSAGES: Record<string, string> = {
   PROTOCOL_MISMATCH: 'Please update the app to play online.',
@@ -141,6 +142,7 @@ export const ERROR_MESSAGES: Record<string, string> = {
   WEAPON_NOT_READY: 'Power-up not charged.',
   WEAPON_UNKNOWN: 'Unknown power-up.',
   POWERUPS_DISABLED: 'Power-ups are disabled in Classic mode.',
+  BLOCKED: "You can't fire at rocks or islands.",
 };
 
 // ---- Nicknames ----

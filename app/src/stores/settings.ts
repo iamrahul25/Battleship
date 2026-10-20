@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
-import { DEFAULT_BOARD_SIZE, type GameMode } from '@shared/engine';
+import { DEFAULT_BOARD_SIZE, type GameMode, type ObstacleLevel } from '@shared/engine';
 import { zustandStorage } from '@/platform/storage';
 
 export interface SettingsState {
@@ -14,6 +14,8 @@ export interface SettingsState {
   defaultMode: GameMode;
   /** Last board size chosen for bot games (n×n). */
   boardSize: number;
+  /** Last obstacle density chosen for bot games. */
+  obstacles: ObstacleLevel;
   reducedMotion: boolean;
   set: (patch: Partial<Omit<SettingsState, 'set' | 'reset'>>) => void;
   reset: () => void;
@@ -28,6 +30,7 @@ export const DEFAULT_SETTINGS = {
   allowTouching: false,
   defaultMode: 'arsenal' as GameMode,
   boardSize: DEFAULT_BOARD_SIZE,
+  obstacles: 'few' as ObstacleLevel,
   reducedMotion: false,
 };
 

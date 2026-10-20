@@ -25,12 +25,21 @@ export interface PlacedShip {
 
 export type CellState = 'unknown' | 'miss' | 'hit' | 'sunk' | 'knownEmpty';
 
+/**
+ * rock/island: visible, can't be shot, stop torpedoes. reef: visible, shooting it is a miss.
+ * mine: hidden from the enemy; shooting it makes the shooter skip their next turn.
+ */
+export type ObstacleKind = 'rock' | 'island' | 'reef' | 'mine';
+export type ObstacleLevel = 'none' | 'few' | 'many';
+
 export interface Board {
   width: number;
   height: number;
   ships: PlacedShip[];
   /** Shots received on this board, keyed by `"x,y"`. Missing key means `unknown`. */
   shots: Record<string, CellState>;
+  /** Obstacles on this board, keyed by `"x,y"`. */
+  obstacles?: Record<string, ObstacleKind>;
 }
 
 export interface RuleSet {
@@ -41,6 +50,8 @@ export interface RuleSet {
   powerUpsEnabled: boolean;
   turnTimeMs: number | null;
   placementTimeMs: number | null;
+  /** Obstacle density; missing means none. */
+  obstacles?: ObstacleLevel;
 }
 
 export type Phase = 'placement' | 'battle' | 'finished';
@@ -58,6 +69,8 @@ export interface PlayerState {
   hits: number;
   shipsSunk: number;
   powerUpsUsed: number;
+  /** Set by hitting a mine: the next turn that would pass to this player is skipped. */
+  skipNextTurn?: boolean;
 }
 
 export interface GameState {
@@ -78,6 +91,8 @@ export type ShotResultKind = 'miss' | 'hit' | 'sunk';
 export interface ShotResult {
   coord: Coord;
   result: ShotResultKind;
+  /** Set when a miss landed on a reef or a hidden mine. */
+  obstacle?: 'reef' | 'mine';
   shipUid?: string;
   /** Full ship revealed when sunk. */
   ship?: PlacedShip;
@@ -98,6 +113,10 @@ export interface ShotEvent {
   /** Cells auto-marked as empty around ships sunk by this event. */
   knownEmpty?: Coord[];
   turnPassed: boolean;
+  /** The shooter hit a mine and will skip their next turn. */
+  mineTriggered?: boolean;
+  /** This player's turn was skipped (mine penalty), so the shooter goes again. */
+  turnSkipped?: PlayerIndex;
   /** Set when the server/engine fired on the player's behalf after a timeout. */
   auto?: boolean;
   turnNumber: number;
@@ -121,7 +140,8 @@ export type GameErrorCode =
   | 'ALREADY_READY'
   | 'WEAPON_NOT_READY'
   | 'WEAPON_UNKNOWN'
-  | 'POWERUPS_DISABLED';
+  | 'POWERUPS_DISABLED'
+  | 'BLOCKED';
 
 export type GameEvent =
   | { type: 'fleetPlaced'; player: PlayerIndex }
@@ -143,6 +163,8 @@ export interface TargetView {
   shots: Record<string, CellState>;
   /** Only sunk ships (or all ships once the game is finished). */
   ships: PlacedShip[];
+  /** Visible obstacles: rocks, islands, reefs, and mines that have been triggered (all once finished). */
+  obstacles?: Record<string, ObstacleKind>;
 }
 
 export interface PlayerPublicInfo {

@@ -1,4 +1,4 @@
-import type { Board, CellState, Coord, PlacedShip } from './types';
+import type { Board, CellState, Coord, ObstacleKind, PlacedShip } from './types';
 
 export const key = (c: Coord) => `${c.x},${c.y}`;
 
@@ -46,12 +46,21 @@ export function allCells(dims: { width: number; height: number }): Coord[] {
   return out;
 }
 
-export function isTargetable(board: { shots: Record<string, CellState> }, c: Coord): boolean {
-  return cellAt(board, c) === 'unknown';
+type ObstacleMap = { obstacles?: Record<string, ObstacleKind> };
+
+export function obstacleAt(board: ObstacleMap, c: Coord): ObstacleKind | undefined {
+  return board.obstacles?.[key(c)];
+}
+
+/** Rocks and islands can't be fired at and block ships and torpedoes. */
+export const isSolidObstacle = (kind: ObstacleKind | undefined) => kind === 'rock' || kind === 'island';
+
+export function isTargetable(board: { shots: Record<string, CellState> } & ObstacleMap, c: Coord): boolean {
+  return cellAt(board, c) === 'unknown' && !isSolidObstacle(obstacleAt(board, c));
 }
 
 /** Unfired cells that can still be targeted. */
-export function legalTargets(board: { width: number; height: number; shots: Record<string, CellState> }): Coord[] {
+export function legalTargets(board: { width: number; height: number; shots: Record<string, CellState> } & ObstacleMap): Coord[] {
   return allCells(board).filter((c) => isTargetable(board, c));
 }
 
@@ -75,5 +84,6 @@ export function cloneBoard(board: Board): Board {
     height: board.height,
     ships: board.ships.map((s) => ({ ...s, origin: { ...s.origin }, cells: s.cells.map((c) => ({ ...c })) })),
     shots: { ...board.shots },
+    ...(board.obstacles ? { obstacles: { ...board.obstacles } } : {}),
   };
 }

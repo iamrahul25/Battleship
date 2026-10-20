@@ -3,6 +3,7 @@ export * from './config';
 export * from './rng';
 export * from './board';
 export * from './placement';
+export * from './obstacles';
 export * from './attack';
 export * from './weapons';
 export * from './game';

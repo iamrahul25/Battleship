@@ -175,6 +175,17 @@ export const useMatchStore = create<MatchState>()((set, get) => {
         }
         if (sunk) set({ stamp: { key: keySeq++, text: mine ? 'SHIP SUNK!' : 'SHIP LOST!' } });
         if (mine && hit) unlockBadges(['first_blood']);
+        if (event.mineTriggered) {
+          playSound('artillery');
+          haptic('heavy');
+          if (!reduced) set((st) => ({ shake: { key: st.shake.key + 1, intensity: 8 } }));
+          if (!sunk) set({ stamp: { key: keySeq++, text: mine ? 'MINE! TURN LOST' : 'ENEMY HIT A MINE' } });
+        }
+      }
+      if (event.turnSkipped !== undefined) {
+        // The mine penalty kept the turn with the shooter, so the usual turn-change banner never fires.
+        set({ banner: { key: keySeq++, mine: view.activePlayer === view.viewer } });
+        if (view.activePlayer === view.viewer) playSound('turn');
       }
       const controller = get().controller;
       if (controller instanceof LocalGameController && view.phase === 'battle') {

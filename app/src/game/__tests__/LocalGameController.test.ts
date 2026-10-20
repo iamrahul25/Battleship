@@ -1,4 +1,4 @@
-import { createBot, createRng, type Difficulty, fleetForSize, rulesForMode } from '@shared/engine';
+import { createBot, createRng, type Difficulty, fleetForSize, obstacleAt, rulesForMode } from '@shared/engine';
 import { LocalGameController, type LocalGameOptions } from '../controllers/LocalGameController';
 import type { ControllerEvent } from '../controllers/types';
 
@@ -15,7 +15,7 @@ const options = (over: Partial<LocalGameOptions> = {}): LocalGameOptions => ({
 
 function placeHumanFleet(c: LocalGameController, seed = 99) {
   const helper = createBot('easy', c.rules, createRng(seed));
-  c.placeFleet(helper.placeFleet());
+  c.placeFleet(helper.placeFleet(c.getState().players[0].board.obstacles));
   c.ready();
 }
 
@@ -146,6 +146,26 @@ describe('LocalGameController', () => {
     expect(c.rules.fleet).toEqual(fleetForSize(n, 'arsenal'));
     const events = playOut(c);
     expect(events.some((e) => e.type === 'gameOver')).toBe(true);
+    c.dispose();
+  });
+
+  it.each(['few', 'many'] as const)('plays a full game with %s obstacles', (level) => {
+    const c = new LocalGameController(options({ boardSize: 10, obstacles: level }));
+    expect(c.rules.obstacles).toBe(level);
+    const [me, bot] = c.getState().players;
+    expect(Object.keys(me.board.obstacles ?? {}).length).toBeGreaterThan(0);
+    expect(Object.keys(bot.board.obstacles ?? {}).length).toBeGreaterThan(0);
+    for (const s of bot.board.ships) {
+      for (const cell of s.cells) expect(obstacleAt(bot.board, cell)).toBeUndefined();
+    }
+    const events = playOut(c);
+    expect(events.some((e) => e.type === 'gameOver')).toBe(true);
+    c.dispose();
+  });
+
+  it('has no obstacles when set to none', () => {
+    const c = new LocalGameController(options({ obstacles: 'none' }));
+    expect(c.getState().players[0].board.obstacles).toBeUndefined();
     c.dispose();
   });
 });

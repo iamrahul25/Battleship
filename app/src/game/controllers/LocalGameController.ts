@@ -14,6 +14,7 @@ import {
   type GameMode,
   type GameState,
   getPublicView,
+  type ObstacleLevel,
   ONLINE_TURN_TIME_MS,
   type Orientation,
   type PlacedShip,
@@ -39,6 +40,7 @@ export interface LocalGameOptions {
   offlineTimer: boolean;
   /** Square board edge (defaults to Medium). */
   boardSize?: number;
+  obstacles?: ObstacleLevel;
   me: PlayerCardInfo;
   seed?: number;
 }
@@ -78,6 +80,7 @@ export class LocalGameController implements GameController {
       ? saved.state.rules
       : rulesForMode(options.mode, {
           ...boardRules(options.boardSize ?? DEFAULT_BOARD_SIZE, options.mode),
+          ...(options.obstacles && options.obstacles !== 'none' ? { obstacles: options.obstacles } : {}),
           bonusShotOnHit: options.bonusShotOnHit,
           allowTouching: options.allowTouching,
           turnTimeMs: options.offlineTimer ? ONLINE_TURN_TIME_MS : null,
@@ -94,7 +97,7 @@ export class LocalGameController implements GameController {
 
   private freshGame(): GameState {
     let state = createGame(this.rules, this.rng.next() * 0xffffffff);
-    state = applyAction(state, { type: 'PLACE_FLEET', player: BOT, ships: this.bot.placeFleet() }).state;
+    state = applyAction(state, { type: 'PLACE_FLEET', player: BOT, ships: this.bot.placeFleet(state.players[BOT].board.obstacles) }).state;
     state = applyAction(state, { type: 'READY', player: BOT }).state;
     return state;
   }
