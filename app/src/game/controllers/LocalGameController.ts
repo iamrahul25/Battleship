@@ -1,7 +1,6 @@
 import {
   type Action,
   applyAction,
-  boardRules,
   type Bot,
   botViewFromPublic,
   BOT_PROFILES,
@@ -14,6 +13,7 @@ import {
   type GameMode,
   type GameState,
   getPublicView,
+  matchRules,
   type ObstacleLevel,
   ONLINE_TURN_TIME_MS,
   type Orientation,
@@ -21,7 +21,6 @@ import {
   type PublicView,
   randomSeed,
   type Rng,
-  rulesForMode,
   type RuleSet,
 } from '@shared/engine';
 import { ERROR_MESSAGES, type EmoteId } from '@shared/protocol';
@@ -78,13 +77,15 @@ export class LocalGameController implements GameController {
     this.difficulty = options.difficulty;
     this.rules = saved
       ? saved.state.rules
-      : rulesForMode(options.mode, {
-          ...boardRules(options.boardSize ?? DEFAULT_BOARD_SIZE, options.mode),
-          ...(options.obstacles && options.obstacles !== 'none' ? { obstacles: options.obstacles } : {}),
-          bonusShotOnHit: options.bonusShotOnHit,
-          allowTouching: options.allowTouching,
-          turnTimeMs: options.offlineTimer ? ONLINE_TURN_TIME_MS : null,
-        });
+      : matchRules(
+          options.mode,
+          { boardSize: options.boardSize ?? DEFAULT_BOARD_SIZE, obstacles: options.obstacles ?? 'none' },
+          {
+            bonusShotOnHit: options.bonusShotOnHit,
+            allowTouching: options.allowTouching,
+            turnTimeMs: options.offlineTimer ? ONLINE_TURN_TIME_MS : null,
+          },
+        );
     this.rng = createRng(saved ? saved.botRngState : (options.seed ?? randomSeed()));
     this.bot = createBot(options.difficulty, this.rules, this.rng);
     this.state = saved ? saved.state : this.freshGame();

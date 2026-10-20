@@ -1,13 +1,17 @@
 import { Client, CloseCode, type Room } from '@colyseus/sdk';
 import { AppState, type NativeEventSubscription } from 'react-native';
 import {
+  clampBoardSize,
   type Coord,
   type GameMode,
+  type MatchSettings,
+  matchRules,
+  OBSTACLE_LEVELS,
   type Orientation,
   type PlacedShip,
   type PublicView,
-  rulesForMode,
   type RuleSet,
+  STANDARD_MATCH_SETTINGS,
 } from '@shared/engine';
 import {
   ClientMessage,
@@ -29,7 +33,10 @@ import { getHttpUrl, getServerUrl } from '@/net/serverUrl';
 import { removeKey, writeJson } from '@/platform/storage';
 import { type ControllerMeta, Emitter, type GameController, type MetaPhase, type PlayerCardInfo } from './types';
 
-export type OnlineJoin = { kind: 'quick'; mode: GameMode } | { kind: 'create'; mode: GameMode } | { kind: 'code'; code: string };
+export type OnlineJoin =
+  | { kind: 'quick'; mode: GameMode }
+  | { kind: 'create'; mode: GameMode; settings: MatchSettings }
+  | { kind: 'code'; code: string };
 
 export class OnlineError extends Error {
   constructor(
@@ -64,7 +71,20 @@ interface SyncedState {
   serverTime: number;
   paused: boolean;
   mode: string;
+  boardSize: number;
+  obstacles: string;
   code: string;
+}
+
+/** Joins resolve on the handshake; the room's mode and table only arrive with the first full state. */
+function firstState(room: Room): Promise<void> {
+  if ((room.state as SyncedState | undefined)?.phase) return Promise.resolve();
+  return new Promise((resolve) => room.onStateChange.once(() => resolve()));
+}
+
+function settingsFromState(state: SyncedState): MatchSettings {
+  const obstacles = OBSTACLE_LEVELS.find((o) => o === state.obstacles) ?? STANDARD_MATCH_SETTINGS.obstacles;
+  return { boardSize: clampBoardSize(state.boardSize || STANDARD_MATCH_SETTINGS.boardSize), obstacles };
 }
 
 const RECONNECT_KEY = 'reconnect.v1';
@@ -108,6 +128,7 @@ export async function checkServer(timeoutMs = 3000): Promise<boolean> {
 export class OnlineGameController implements GameController {
   readonly kind = 'online' as const;
   readonly mode: GameMode;
+  readonly settings: MatchSettings;
 
   private emitter = new Emitter();
   private view: PublicView | null = null;
@@ -128,7 +149,8 @@ export class OnlineGameController implements GameController {
   ) {
     const state = room.state as SyncedState;
     this.mode = state.mode === 'classic' ? 'classic' : 'arsenal';
-    this.rulesCache = rulesForMode(this.mode);
+    this.settings = settingsFromState(state);
+    this.rulesCache = matchRules(this.mode, this.settings);
     this.bind(room);
     this.appStateSub = AppState.addEventListener('change', (s) => {
       if (s === 'active') void this.tryManualReconnect();
@@ -143,7 +165,10 @@ export class OnlineGameController implements GameController {
       if (join.kind === 'quick') {
         room = await withTimeout(client.joinOrCreate(ROOM_NAME, { ...base, mode: join.mode }), JOIN_TIMEOUT_MS);
       } else if (join.kind === 'create') {
-        room = await withTimeout(client.create(ROOM_NAME, { ...base, mode: join.mode, private: true }), JOIN_TIMEOUT_MS);
+        room = await withTimeout(
+          client.create(ROOM_NAME, { ...base, mode: join.mode, private: true, ...join.settings }),
+          JOIN_TIMEOUT_MS,
+        );
       } else {
         const parsed = roomCodeSchema.safeParse(join.code);
         if (!parsed.success) throw new OnlineError('ROOM_NOT_FOUND', 'That code looks wrong.');
@@ -155,6 +180,7 @@ export class OnlineGameController implements GameController {
       }
       room.reconnection.maxRetries = 15;
       room.reconnection.maxDelay = 3000;
+      await withTimeout(firstState(room), JOIN_TIMEOUT_MS);
       const controller = new OnlineGameController(client, room, profile);
       void writeJson(RECONNECT_KEY, { token: room.reconnectionToken, at: Date.now() });
       return controller;

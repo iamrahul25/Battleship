@@ -3,7 +3,7 @@ import type { Room as SDKRoom } from '@colyseus/sdk';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { createGameServer } from '../src/app';
 import type { BattleRoom } from '../src/rooms/BattleRoom';
-import type { PlacedShip, PublicView } from '../src/shared/engine';
+import { isStraightShip, ONLINE_PLACEMENT_TIME_MS, type PlacedShip, type PublicView } from '../src/shared/engine';
 import { PROTOCOL_VERSION, ROOM_NAME } from '../src/shared/protocol';
 import { rowFleet } from './helpers';
 
@@ -56,9 +56,10 @@ function record(room: SDKRoom) {
   return { room, messages, all: [] as Msg[], waitFor };
 }
 
+/** Defaults to Classic so the straight `rowFleet` is a legal placement. */
 const join = (name: string, extra: Record<string, unknown> = {}) => ({
   protocolVersion: PROTOCOL_VERSION,
-  mode: 'arsenal',
+  mode: 'classic',
   profile: { playerId: name, name, avatarId: 'captain', wins: 1, losses: 2 },
   ...extra,
 });
@@ -153,6 +154,63 @@ describe('matchmaking', () => {
     const r = await colyseus.sdk.joinOrCreate(ROOM_NAME, join('  x '));
     const server = colyseus.getRoomById<BattleRoom>(r.roomId);
     expect(server.state.players.get(r.sessionId)!.name).toMatch(/^Sailor\d{3}$/);
+  });
+});
+
+describe('table settings', () => {
+  it('quick match always plays the standard table, ignoring size/obstacle options', async () => {
+    const { a, server } = await startMatch({ mode: 'arsenal', boardSize: 14, obstacles: 'many' });
+    expect(server.rules.grid).toEqual({ width: 10, height: 10 });
+    expect(server.rules.obstacles ?? 'none').toBe('none');
+    expect(server.rules.powerUpsEnabled).toBe(true);
+    expect(server.rules.fleet.some((d) => !isStraightShip(d))).toBe(true);
+    expect(server.state.boardSize).toBe(10);
+    expect(server.state.obstacles).toBe('none');
+    const sync = await a.waitFor('sync');
+    expect(Object.keys(sync.view.myBoard.obstacles ?? {})).toHaveLength(0);
+  });
+
+  it('classic quick match keeps the straight fleet', async () => {
+    const { server } = await startMatch({ mode: 'classic' });
+    expect(server.rules.powerUpsEnabled).toBe(false);
+    expect(server.rules.fleet.every(isStraightShip)).toBe(true);
+  });
+
+  it('private rooms play the host table and sync it to both players', async () => {
+    const host = record(await colyseus.sdk.create(ROOM_NAME, join('Alice', { private: true, mode: 'arsenal', boardSize: 12, obstacles: 'many' })));
+    const server = colyseus.getRoomById<BattleRoom>(host.room.roomId);
+    expect(server.rules.grid).toEqual({ width: 12, height: 12 });
+    expect(server.rules.obstacles).toBe('many');
+    expect(server.rules.placementTimeMs).toBeGreaterThan(ONLINE_PLACEMENT_TIME_MS);
+    if (!host.room.state.phase) await new Promise<void>((resolve) => host.room.onStateChange.once(() => resolve()));
+    expect(host.room.state.boardSize).toBe(12);
+    expect(host.room.state.obstacles).toBe('many');
+
+    const guest = record(await colyseus.sdk.joinById(host.room.roomId, join('Guest', { boardSize: 7, obstacles: 'none' })));
+    const sync = await guest.waitFor('sync');
+    expect(sync.view.rules.grid.width).toBe(12);
+    expect(Object.keys(sync.view.myBoard.obstacles).length).toBeGreaterThan(0);
+    expect(server.rules.grid.width).toBe(12);
+  });
+
+  it('auto-placed fleets on a private obstacle table avoid solid cells and the battle starts', async () => {
+    const host = record(
+      await colyseus.sdk.create(ROOM_NAME, join('Alice', { private: true, mode: 'arsenal', boardSize: 8, obstacles: 'many', placementTimeMs: 300 })),
+    );
+    const guest = record(await colyseus.sdk.joinById(host.room.roomId, join('Guest')));
+    const server = colyseus.getRoomById<BattleRoom>(host.room.roomId);
+    const fleet: PlacedShip[] = await host.waitFor('your_fleet', undefined, 3000);
+    await guest.waitFor('your_fleet', undefined, 3000);
+    await host.waitFor('sync', (p) => p.view.phase === 'battle');
+    const seat = server.seats.find((s) => s.sessionId === host.room.sessionId)!.index;
+    const obstacles = server.game!.players[seat].board.obstacles ?? {};
+    for (const s of fleet) for (const c of s.cells) expect(obstacles[`${c.x},${c.y}`]).toBeUndefined();
+    expect(fleet.every((s) => s.cells.every((c) => c.x < 8 && c.y < 8))).toBe(true);
+  });
+
+  it('rejects out-of-range private settings', async () => {
+    await expect(colyseus.sdk.create(ROOM_NAME, join('Alice', { private: true, boardSize: 30 }))).rejects.toThrow();
+    await expect(colyseus.sdk.create(ROOM_NAME, join('Alice', { private: true, obstacles: 'lava' }))).rejects.toThrow();
   });
 });
 

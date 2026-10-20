@@ -1,24 +1,12 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import {
-  BOARD_SIZE_MAX,
-  BOARD_SIZE_MIN,
-  boardRules,
-  BoardSizePresets,
-  BOT_PROFILES,
-  clampBoardSize,
-  createRules,
-  type Difficulty,
-  type GameMode,
-  type ObstacleLevel,
-  totalShipCells,
-  totalShips,
-} from '@shared/engine';
+import { BOT_PROFILES, clampBoardSize, type Difficulty, type GameMode, type MatchSettings } from '@shared/engine';
 import { playSound } from '@/audio/SoundManager';
+import { TableSettings } from '@/components/setup/TableSettings';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
-import { Segmented, Slider, Toggle } from '@/components/ui/controls';
+import { Segmented, Toggle } from '@/components/ui/controls';
 import { Panel } from '@/components/ui/Panel';
 import { Screen } from '@/components/ui/Screen';
 import { LocalGameController } from '@/game/controllers/LocalGameController';
@@ -32,8 +20,6 @@ import { colors, fonts, text } from '@/theme';
 
 const DIFFICULTIES: Difficulty[] = ['easy', 'medium', 'hard'];
 const STARS: Record<Difficulty, number> = { easy: 1, medium: 2, hard: 3 };
-const PRESET_IDS = Object.keys(BoardSizePresets) as (keyof typeof BoardSizePresets)[];
-type SizeChoice = (typeof PRESET_IDS)[number] | 'custom';
 
 export default function BotSetup() {
   const settings = useSettingsStore();
@@ -43,16 +29,8 @@ export default function BotSetup() {
   const [mode, setMode] = useState<GameMode>(settings.defaultMode);
   const [bonus, setBonus] = useState(settings.bonusShotOnHit);
   const [touching, setTouching] = useState(settings.allowTouching);
-  const [boardSize, setBoardSize] = useState(clampBoardSize(settings.boardSize));
-  const [obstacles, setObstacles] = useState<ObstacleLevel>(settings.obstacles);
-  const [customSize, setCustomSize] = useState(!PRESET_IDS.some((id) => BoardSizePresets[id] === settings.boardSize));
-  const sizeChoice: SizeChoice = customSize ? 'custom' : (PRESET_IDS.find((id) => BoardSizePresets[id] === boardSize) ?? 'custom');
-  const sizeRules = createRules(boardRules(boardSize, mode));
-
-  const chooseSize = (choice: SizeChoice) => {
-    setCustomSize(choice === 'custom');
-    if (choice !== 'custom') setBoardSize(BoardSizePresets[choice]);
-  };
+  const [table, setTable] = useState<MatchSettings>({ boardSize: clampBoardSize(settings.boardSize), obstacles: settings.obstacles });
+  const { boardSize, obstacles } = table;
 
   const start = () => {
     void clearSavedGame();
@@ -118,43 +96,7 @@ export default function BotSetup() {
         ]}
       />
 
-      <Text style={styles.section}>BOARD</Text>
-      <Segmented
-        value={sizeChoice}
-        onChange={chooseSize}
-        options={[
-          ...PRESET_IDS.map((id) => ({ value: id, label: id.toUpperCase(), hint: `${BoardSizePresets[id]}×${BoardSizePresets[id]}` })),
-          { value: 'custom' as const, label: 'CUSTOM', hint: `${BOARD_SIZE_MIN}–${BOARD_SIZE_MAX}` },
-        ]}
-      />
-      {customSize && (
-        <Slider
-          label="Board size"
-          value={boardSize}
-          onChange={setBoardSize}
-          min={BOARD_SIZE_MIN}
-          max={BOARD_SIZE_MAX}
-          step={1}
-          format={(v) => `${v}×${v}`}
-        />
-      )}
-      <Text style={[text.caption, { marginTop: 6 }]}>
-        {totalShips(sizeRules)} ships · {totalShipCells(sizeRules)} ship cells on a {boardSize}×{boardSize} grid
-      </Text>
-
-      <Text style={styles.section}>OBSTACLES</Text>
-      <Segmented
-        value={obstacles}
-        onChange={setObstacles}
-        options={[
-          { value: 'none', label: 'NONE', hint: 'Open sea' },
-          { value: 'few', label: 'FEW', hint: 'A scattering' },
-          { value: 'many', label: 'MANY', hint: 'Crowded waters' },
-        ]}
-      />
-      <Text style={[text.caption, { marginTop: 6 }]}>
-        Rocks and islands can&apos;t be shot · reefs are visible · hidden mines make the shooter skip a turn
-      </Text>
+      <TableSettings mode={mode} value={table} onChange={setTable} />
 
       <Panel title="Rules" style={{ marginTop: 16 }}>
         <Toggle label="Bonus shot on hit" hint="Keep firing after every hit" value={bonus} onChange={setBonus} />

@@ -2,8 +2,9 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
-import type { GameMode } from '@shared/engine';
+import { clampBoardSize, type GameMode, type MatchSettings, STANDARD_MATCH_SETTINGS } from '@shared/engine';
 import { ROOM_CODE_LENGTH, roomCodeSchema } from '@shared/protocol';
+import { describeTable, TableSettings } from '@/components/setup/TableSettings';
 import { Button } from '@/components/ui/Button';
 import { Segmented } from '@/components/ui/controls';
 import { Panel } from '@/components/ui/Panel';
@@ -17,7 +18,11 @@ export default function OnlineMenu() {
   const params = useLocalSearchParams<{ tab?: string }>();
   const online = useServerStatus();
   const defaultMode = useSettingsStore((s) => s.defaultMode);
+  const savedSize = useSettingsStore((s) => s.boardSize);
+  const savedObstacles = useSettingsStore((s) => s.obstacles);
+  const setSettings = useSettingsStore((s) => s.set);
   const [mode, setMode] = useState<GameMode>(defaultMode);
+  const [table, setTable] = useState<MatchSettings>({ boardSize: clampBoardSize(savedSize), obstacles: savedObstacles });
   const [code, setCode] = useState('');
   const validCode = roomCodeSchema.safeParse(code).success;
   const privateFirst = params.tab === 'private';
@@ -35,7 +40,9 @@ export default function OnlineMenu() {
 
   const quick = (
     <Panel title="Quick match" key="quick">
-      <Text style={[text.body, styles.copy]}>Get paired with the next available captain.</Text>
+      <Text style={[text.body, styles.copy]}>
+        Get paired with the next available captain. Standard table: {describeTable(STANDARD_MATCH_SETTINGS)}.
+      </Text>
       <Button
         title="Find opponent"
         size="lg"
@@ -47,14 +54,21 @@ export default function OnlineMenu() {
     </Panel>
   );
 
+  const createRoom = () => {
+    setSettings(table);
+    router.push({ pathname: '/online/room', params: { kind: 'create', mode, boardSize: String(table.boardSize), obstacles: table.obstacles } });
+  };
+
   const priv = (
     <Panel title="Private room" key="private">
-      <Text style={[text.body, styles.copy]}>Create a room and share the code with a friend, or join theirs.</Text>
+      <Text style={[text.body, styles.copy]}>Create a room and share the code with a friend, or join theirs. As host you pick the table.</Text>
+      <TableSettings mode={mode} value={table} onChange={setTable} />
       <Button
         title="Create room"
         variant="secondary"
         disabled={online === false}
-        onPress={guard(() => router.push({ pathname: '/online/room', params: { kind: 'create', mode } }))}
+        onPress={guard(createRoom)}
+        style={{ marginTop: 16 }}
         icon={<MaterialCommunityIcons name="plus-circle" size={22} color={colors.steel100} />}
         testID="create-room"
       />
@@ -94,12 +108,12 @@ export default function OnlineMenu() {
         value={mode}
         onChange={setMode}
         options={[
-          { value: 'classic', label: 'CLASSIC', hint: 'Pure cannon fire' },
-          { value: 'arsenal', label: 'ARSENAL', hint: 'Artillery & sonar' },
+          { value: 'classic', label: 'CLASSIC', hint: 'Straight ships, cannon only' },
+          { value: 'arsenal', label: 'ARSENAL', hint: 'T/L/Z ships, power-ups' },
         ]}
       />
       <View style={{ gap: 14, marginTop: 16 }}>{privateFirst ? [priv, quick] : [quick, priv]}</View>
-      <Text style={[text.caption, { textAlign: 'center', marginTop: 16 }]}>30 s per turn · 60 s to deploy · rejoin within 30 s if disconnected</Text>
+      <Text style={[text.caption, { textAlign: 'center', marginTop: 16 }]}>30 s per turn · 60 s+ to deploy · rejoin within 30 s if disconnected</Text>
     </Screen>
   );
 }

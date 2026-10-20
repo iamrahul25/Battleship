@@ -192,6 +192,24 @@ export function rulesForMode(mode: GameMode, overrides: Partial<RuleSet> = {}): 
   return createRules({ powerUpsEnabled: mode === 'arsenal', ...overrides });
 }
 
+/** Host-chosen table settings for a match. */
+export interface MatchSettings {
+  boardSize: number;
+  obstacles: ObstacleLevel;
+}
+
+/** Quick Match always plays on these. */
+export const STANDARD_MATCH_SETTINGS: MatchSettings = { boardSize: DEFAULT_BOARD_SIZE, obstacles: 'none' };
+
+/** Full rules for a mode played with the given board size and obstacle level. */
+export function matchRules(mode: GameMode, settings: MatchSettings, overrides: Partial<RuleSet> = {}): RuleSet {
+  return rulesForMode(mode, {
+    ...boardRules(settings.boardSize, mode),
+    ...(settings.obstacles !== 'none' ? { obstacles: settings.obstacles } : {}),
+    ...overrides,
+  });
+}
+
 export function totalShipCells(rules: RuleSet): number {
   return rules.fleet.reduce((sum, def) => sum + def.cells.length * def.count, 0);
 }

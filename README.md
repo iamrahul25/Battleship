@@ -186,7 +186,7 @@ The server is deployed on [Render](https://render.com) from [`render.yaml`](./re
 A healthy server responds with:
 
 ```json
-{"ok":true,"protocolVersion":1,"uptime":33.57,"rooms":0}
+{"ok":true,"protocolVersion":2,"uptime":33.57,"rooms":0}
 ```
 
 The free plan sleeps after ~15 minutes without traffic; the first connection afterwards

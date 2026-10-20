@@ -41,6 +41,15 @@ describe('protocol schemas', () => {
     expect(joinOptionsSchema.safeParse({}).success).toBe(false);
     expect(joinOptionsSchema.safeParse({ protocolVersion: 1, mode: 'chaos' }).success).toBe(false);
   });
+  it('join options validate private table settings', () => {
+    const base = { protocolVersion: PROTOCOL_VERSION };
+    expect(joinOptionsSchema.safeParse({ ...base, boardSize: 7, obstacles: 'none' }).success).toBe(true);
+    expect(joinOptionsSchema.safeParse({ ...base, boardSize: 15, obstacles: 'many' }).success).toBe(true);
+    expect(joinOptionsSchema.safeParse({ ...base, boardSize: 6 }).success).toBe(false);
+    expect(joinOptionsSchema.safeParse({ ...base, boardSize: 16 }).success).toBe(false);
+    expect(joinOptionsSchema.safeParse({ ...base, boardSize: 10.5 }).success).toBe(false);
+    expect(joinOptionsSchema.safeParse({ ...base, obstacles: 'lots' }).success).toBe(false);
+  });
   it('room codes: 6 chars, no ambiguous chars, case-insensitive', () => {
     for (let i = 0; i < 200; i++) {
       const code = generateRoomCode();

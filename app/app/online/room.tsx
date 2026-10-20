@@ -3,8 +3,9 @@ import * as Clipboard from 'expo-clipboard';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo } from 'react';
 import { ActivityIndicator, Share, StyleSheet, Text, View } from 'react-native';
-import type { GameMode } from '@shared/engine';
+import { clampBoardSize, type GameMode, OBSTACLE_LEVELS, STANDARD_MATCH_SETTINGS } from '@shared/engine';
 import { PlayerCard } from '@/components/hud/PlayerCard';
+import { describeTable } from '@/components/setup/TableSettings';
 import { Button } from '@/components/ui/Button';
 import { Panel } from '@/components/ui/Panel';
 import { Screen } from '@/components/ui/Screen';
@@ -15,13 +16,20 @@ import { toast } from '@/stores/ui';
 import { colors, fonts, text } from '@/theme';
 
 export default function PrivateRoom() {
-  const params = useLocalSearchParams<{ kind?: string; mode?: string; code?: string }>();
+  const params = useLocalSearchParams<{ kind?: string; mode?: string; code?: string; boardSize?: string; obstacles?: string }>();
   const join = useMemo<OnlineJoin>(
     () =>
       params.kind === 'code'
         ? { kind: 'code', code: params.code ?? '' }
-        : { kind: 'create', mode: (params.mode === 'classic' ? 'classic' : 'arsenal') as GameMode },
-    [params.kind, params.code, params.mode],
+        : {
+            kind: 'create',
+            mode: (params.mode === 'classic' ? 'classic' : 'arsenal') as GameMode,
+            settings: {
+              boardSize: clampBoardSize(Number(params.boardSize) || STANDARD_MATCH_SETTINGS.boardSize),
+              obstacles: OBSTACLE_LEVELS.find((o) => o === params.obstacles) ?? STANDARD_MATCH_SETTINGS.obstacles,
+            },
+          },
+    [params.kind, params.code, params.mode, params.boardSize, params.obstacles],
   );
   const { error, connecting } = useOnlineMatch(join);
   const meta = useMatchStore((s) => s.meta);
@@ -62,6 +70,11 @@ export default function PrivateRoom() {
               <Text style={styles.code} selectable testID="room-code">
                 {code}
               </Text>
+              {join.kind === 'create' && (
+                <Text style={styles.table} testID="room-table">
+                  {join.mode.toUpperCase()} · {describeTable(join.settings)}
+                </Text>
+              )}
               <View style={styles.codeActions}>
                 <Button title="Copy" variant="secondary" size="sm" onPress={copy} icon={<Ionicons name="copy" size={16} color={colors.steel100} />} style={{ flex: 1 }} />
                 <Button title="Share" variant="secondary" size="sm" onPress={share} icon={<Ionicons name="share-social" size={16} color={colors.steel100} />} style={{ flex: 1 }} />
@@ -92,6 +105,7 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 22 },
   codePanel: { alignItems: 'center', width: '100%', paddingVertical: 24 },
   code: { fontFamily: fonts.heading, fontSize: 48, letterSpacing: 10, color: colors.brass, marginVertical: 10 },
+  table: { fontFamily: fonts.bodySemi, fontSize: 14, color: colors.steel200, marginBottom: 12, letterSpacing: 0.5 },
   codeActions: { flexDirection: 'row', gap: 10, width: '100%' },
   players: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%' },
   vs: { fontFamily: fonts.heading, fontSize: 20, color: colors.signalRed },

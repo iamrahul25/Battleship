@@ -9,16 +9,21 @@ import {
   applyAction,
   createGame,
   type GameEvent,
+  type GameMode,
   type GameState,
   getPublicView,
+  type MatchSettings,
+  matchRules,
+  type ObstacleLevel,
   ONLINE_PLACEMENT_TIME_MS,
   ONLINE_TURN_TIME_MS,
   other,
   type PlayerIndex,
   randomSeed,
   redactShotEvent,
-  rulesForMode,
   type RuleSet,
+  STANDARD_MATCH_SETTINGS,
+  totalShips,
 } from '../shared/engine';
 import {
   ClientMessage,
@@ -38,9 +43,30 @@ import {
 } from '../shared/protocol';
 import { BattleState, PlayerPublic } from './schema/BattleState';
 
+const roomSettingsSchema = joinOptionsSchema.pick({ boardSize: true, obstacles: true });
+
+/** Private rooms play the host's table; Quick Match (and anything malformed) plays the standard one. */
+function settingsFromOptions(options: BattleRoomOptions): MatchSettings {
+  if (!options.private) return STANDARD_MATCH_SETTINGS;
+  const parsed = roomSettingsSchema.safeParse(options);
+  if (!parsed.success) return STANDARD_MATCH_SETTINGS;
+  return {
+    boardSize: parsed.data.boardSize ?? STANDARD_MATCH_SETTINGS.boardSize,
+    obstacles: parsed.data.obstacles ?? STANDARD_MATCH_SETTINGS.obstacles,
+  };
+}
+
+/** Bigger fleets get a little longer to deploy (5 s per ship beyond the classic five). */
+function placementTimeFor(settings: MatchSettings, mode: GameMode): number {
+  const ships = totalShips(matchRules(mode, settings));
+  return ONLINE_PLACEMENT_TIME_MS + Math.max(0, ships - 5) * 5_000;
+}
+
 export interface BattleRoomOptions {
   mode?: 'classic' | 'arsenal';
   private?: boolean;
+  boardSize?: number;
+  obstacles?: ObstacleLevel;
   /** Test hooks. */
   turnTimeMs?: number;
   placementTimeMs?: number;
@@ -74,14 +100,17 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     const mode = options.mode === 'classic' ? 'classic' : 'arsenal';
     // Timing/seed overrides come from client join options, so only honour them under test.
     const hooks: BattleRoomOptions = isTest ? options : {};
-    this.rules = rulesForMode(mode, {
+    const settings = settingsFromOptions(options);
+    this.rules = matchRules(mode, settings, {
       turnTimeMs: hooks.turnTimeMs ?? ONLINE_TURN_TIME_MS,
-      placementTimeMs: hooks.placementTimeMs ?? ONLINE_PLACEMENT_TIME_MS,
+      placementTimeMs: hooks.placementTimeMs ?? placementTimeFor(settings, mode),
     });
     this.reconnectSeconds = hooks.reconnectSeconds ?? config.reconnectSeconds;
     this.seed = hooks.seed;
     this.state = new BattleState();
     this.state.mode = mode;
+    this.state.boardSize = settings.boardSize;
+    this.state.obstacles = settings.obstacles;
 
     if (options.private) {
       const code = generateRoomCode();
@@ -90,7 +119,7 @@ export class BattleRoom extends Room<{ state: BattleState }> {
       registerRoomCode(code, this.roomId);
       this.setPrivate(true);
     }
-    this.setMetadata({ mode, code: this.state.code });
+    this.setMetadata({ mode, code: this.state.code, ...settings });
 
     this.idleTimer = this.clock.setTimeout(() => {
       if (this.state.phase === 'waiting') this.disconnect();
