@@ -1,6 +1,6 @@
 import type { Rng } from '../rng';
 import { POWER_UP_IDS } from '../weapons';
-import { affordable, type BotAction, type BotView, unknownCells, unknownInPattern, unknownNeighbours } from './common';
+import { affordable, type BotAction, type BotView, randomWeaponAction, unknownCells, unknownNeighbours } from './common';
 
 /** "Cadet": random fire, sometimes follows up on hits, uses power-ups at random. */
 export function easyChoose(view: BotView, rng: Rng): BotAction {
@@ -8,9 +8,8 @@ export function easyChoose(view: BotView, rng: Rng): BotAction {
 
   const usable = POWER_UP_IDS.map((id) => affordable(view, id)).filter((w) => w !== null);
   if (usable.length && rng.next() < 0.3) {
-    const weapon = rng.pick(usable);
-    const centers = unknown.filter((c) => unknownInPattern(view, weapon, c) > 0);
-    if (centers.length) return { type: 'USE_WEAPON', weaponId: weapon.id, target: rng.pick(centers) };
+    const action = randomWeaponAction(view, rng.pick(usable), rng);
+    if (action) return action;
   }
 
   const last = view.lastShot;

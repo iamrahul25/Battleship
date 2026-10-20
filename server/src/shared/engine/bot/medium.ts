@@ -10,6 +10,7 @@ import {
   lineEndCandidates,
   sonarEmptyCells,
   sonarHotAreas,
+  torpedoOptions,
   unknownCells,
   unknownNeighbours,
   unresolvedHits,
@@ -37,6 +38,12 @@ export function mediumChoose(view: BotView, rng: Rng): BotAction {
       const best = bestCenter(view, artillery, (c) => (near.has(key(c)) ? 3 : 1), rng.shuffle(candidates.slice()));
       if (best) return { type: 'USE_WEAPON', weaponId: 'artillery', target: best.center };
     }
+    const airstrike = affordable(view, 'airstrike');
+    if (airstrike && lineEnds.length) {
+      const near = new Set(candidates.map(key));
+      const best = bestCenter(view, airstrike, (c) => (near.has(key(c)) ? 3 : 1), rng.shuffle(candidates.slice()));
+      if (best && best.value >= 5) return { type: 'USE_WEAPON', weaponId: 'airstrike', target: best.center, orientation: best.orientation };
+    }
     if (candidates.length) return { type: 'FIRE', target: rng.pick(candidates) };
   }
 
@@ -46,6 +53,16 @@ export function mediumChoose(view: BotView, rng: Rng): BotAction {
     const area = hot.sort((a, b) => b.hidden / b.cells.length - a.hidden / a.cells.length)[0];
     return { type: 'FIRE', target: rng.pick(area.cells) };
   }
+
+  const torpedo = affordable(view, 'torpedo');
+  if (torpedo && rng.next() < 0.35) {
+    const longest = torpedoOptions(view).sort((a, b) => b.cells.length - a.cells.length)[0];
+    if (longest && longest.cells.length >= Math.ceil(t.width / 2)) {
+      return { type: 'USE_WEAPON', weaponId: 'torpedo', target: longest.launch, orientation: longest.orientation };
+    }
+  }
+  const barrage = affordable(view, 'barrage');
+  if (barrage && pool.length >= 8 && rng.next() < 0.35) return { type: 'USE_WEAPON', weaponId: 'barrage', target: rng.pick(pool) };
 
   const sonar = affordable(view, 'sonar');
   const artilleryLeft = affordable(view, 'artillery') !== null || (view.weaponUses.artillery ?? 0) < 2;

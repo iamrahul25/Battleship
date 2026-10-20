@@ -110,8 +110,10 @@ export interface ShotEvent {
   target: Coord;
   results: ShotResult[];
   sonar?: SonarResult;
-  /** Cells auto-marked as empty around ships sunk by this event. */
+  /** Cells auto-marked as empty: around ships sunk by this event, and water a torpedo ran through. */
   knownEmpty?: Coord[];
+  /** Torpedo track from the launch cell to where it stopped. */
+  path?: Coord[];
   turnPassed: boolean;
   /** The shooter hit a mine and will skip their next turn. */
   mineTriggered?: boolean;

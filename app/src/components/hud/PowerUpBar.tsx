@@ -14,10 +14,15 @@ interface Props {
   onSelect: (id: string) => void;
 }
 
-const ICONS: Record<string, keyof typeof MaterialCommunityIcons.glyphMap> = {
-  artillery: 'bomb',
+export const WEAPON_ICONS: Record<string, keyof typeof MaterialCommunityIcons.glyphMap> = {
+  barrage: 'weather-hail',
   sonar: 'radar',
+  torpedo: 'submarine',
+  airstrike: 'airplane',
+  artillery: 'bomb',
 };
+
+const TICKS = [...new Set(POWER_UP_IDS.map((id) => WEAPONS[id].cost))].filter((c) => c < CHARGE.max);
 
 export function PowerUpBar({ rules, me, selected, enabled, onSelect }: Props) {
   const fill = useAnimatedStyle(() => ({ width: withTiming(`${(me.charge / CHARGE.max) * 100}%`, { duration: 400 }) }));
@@ -28,8 +33,8 @@ export function PowerUpBar({ rules, me, selected, enabled, onSelect }: Props) {
         <MaterialCommunityIcons name="lightning-bolt" size={16} color={colors.brass} />
         <View style={styles.meter} accessibilityLabel={`Charge ${me.charge} of ${CHARGE.max}`}>
           <Animated.View style={[styles.meterFill, fill]} />
-          {POWER_UP_IDS.map((id) => (
-            <View key={id} style={[styles.tickMark, { left: `${(WEAPONS[id].cost / CHARGE.max) * 100}%` }]} />
+          {TICKS.map((cost) => (
+            <View key={cost} style={[styles.tickMark, { left: `${(cost / CHARGE.max) * 100}%` }]} />
           ))}
         </View>
         <Text style={styles.charge}>{me.charge}</Text>
@@ -40,11 +45,13 @@ export function PowerUpBar({ rules, me, selected, enabled, onSelect }: Props) {
           const ready = canUseWeapon(me, w, rules);
           const active = selected === id;
           const uses = weaponUsesLeft(me, w);
+          const spent = Number.isFinite(uses) && uses === 0;
+          const iconColor = active ? colors.navy900 : ready && enabled ? colors.brass : colors.steel600;
           return (
             <Pressable
               key={id}
               accessibilityRole="button"
-              accessibilityLabel={`${w.name}, costs ${w.cost}`}
+              accessibilityLabel={`${w.name}, costs ${w.cost}${Number.isFinite(uses) ? `, ${uses} left` : ''}`}
               accessibilityState={{ disabled: !ready || !enabled, selected: active }}
               disabled={!ready || !enabled}
               onPress={() => {
@@ -52,17 +59,17 @@ export function PowerUpBar({ rules, me, selected, enabled, onSelect }: Props) {
                 haptic('selection');
                 onSelect(active ? 'standard' : id);
               }}
-              style={[styles.button, ready && enabled && styles.buttonReady, active && styles.buttonActive]}
+              style={[styles.button, ready && enabled && styles.buttonReady, active && styles.buttonActive, spent && styles.buttonSpent]}
             >
-              <MaterialCommunityIcons name={ICONS[id]} size={20} color={active ? colors.navy900 : ready ? colors.brass : colors.steel600} />
-              <View>
-                <Text style={[styles.btnTitle, active && { color: colors.navy900 }, !ready && { color: colors.steel600 }]}>
-                  {id === 'artillery' ? 'ARTILLERY' : 'SONAR'}
-                </Text>
-                <Text style={[styles.btnSub, active && { color: colors.navy800 }]}>
-                  {w.cost}⚡{Number.isFinite(uses) ? ` · ${uses} left` : ''}
-                </Text>
-              </View>
+              <MaterialCommunityIcons name={WEAPON_ICONS[id]} size={20} color={iconColor} />
+              <Text style={[styles.cost, active && { color: colors.navy900 }, !ready && { color: colors.steel600 }]}>{w.cost}</Text>
+              {Number.isFinite(uses) && w.maxUses ? (
+                <View style={styles.pips}>
+                  {Array.from({ length: w.maxUses }, (_, i) => (
+                    <View key={i} style={[styles.pip, active && styles.pipActiveOff, i < uses && (active ? styles.pipActive : styles.pipOn)]} />
+                  ))}
+                </View>
+              ) : null}
             </Pressable>
           );
         })}
@@ -78,14 +85,14 @@ const styles = StyleSheet.create({
   meterFill: { height: '100%', backgroundColor: colors.brass },
   tickMark: { position: 'absolute', top: 0, bottom: 0, width: 2, backgroundColor: colors.navy900 },
   charge: { fontFamily: fonts.bodyBold, color: colors.brass, fontSize: 13, width: 28, textAlign: 'right' },
-  buttons: { flexDirection: 'row', gap: 8 },
+  buttons: { flexDirection: 'row', gap: 4 },
   button: {
     flex: 1,
-    flexDirection: 'row',
+    minWidth: 0,
     alignItems: 'center',
-    gap: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 8,
+    justifyContent: 'center',
+    gap: 1,
+    paddingVertical: 6,
     borderRadius: radii.sm,
     borderWidth: 1.5,
     borderColor: colors.steel600,
@@ -93,6 +100,11 @@ const styles = StyleSheet.create({
   },
   buttonReady: { borderColor: colors.brass },
   buttonActive: { backgroundColor: colors.brass, borderColor: '#F0CF6A' },
-  btnTitle: { fontFamily: fonts.heading, fontSize: 12, color: colors.steel100, letterSpacing: 0.8 },
-  btnSub: { fontFamily: fonts.bodySemi, fontSize: 11, color: colors.steel400 },
+  buttonSpent: { opacity: 0.45 },
+  cost: { fontFamily: fonts.bodyBold, fontSize: 11, color: colors.steel200 },
+  pips: { flexDirection: 'row', gap: 3, height: 4 },
+  pip: { width: 4, height: 4, borderRadius: 2, backgroundColor: colors.navy600 },
+  pipOn: { backgroundColor: colors.brass },
+  pipActive: { backgroundColor: colors.navy900 },
+  pipActiveOff: { backgroundColor: 'rgba(10,22,40,0.25)' },
 });

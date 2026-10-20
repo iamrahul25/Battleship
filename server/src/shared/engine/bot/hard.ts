@@ -2,10 +2,24 @@ import { allCells, cellAt, inBounds, key, neighbours8 } from '../board';
 import { shapeCells, shapeSize, uniqueRotations } from '../placement';
 import type { Rng } from '../rng';
 import type { CellState, Coord, ShipDef } from '../types';
-import { affordable, bestCenter, type BotAction, type BotView, sonarEmptyCells, sonarHotAreas, unknownCells, unresolvedHits } from './common';
+import {
+  affordable,
+  bestCenter,
+  type BotAction,
+  type BotView,
+  sonarEmptyCells,
+  sonarHotAreas,
+  type TorpedoOption,
+  torpedoOptions,
+  unknownCells,
+  unresolvedHits,
+} from './common';
 
 const HIT_WEIGHT = 30;
 const ARTILLERY_THRESHOLD = 2.2;
+const AIRSTRIKE_THRESHOLD = 2.0;
+const TORPEDO_MIN_HIT = 0.85;
+const BARRAGE_THRESHOLD = 1.5;
 
 /**
  * Probability density: for every afloat ship, every placement consistent with the
@@ -90,12 +104,44 @@ export function hardChoose(view: BotView, rng: Rng): BotAction {
   }
   if (!best || bestValue <= 0) return { type: 'FIRE', target: rng.pick(unknown) };
 
+  const centers = rng.shuffle(allCells(t));
   const artillery = affordable(view, 'artillery');
   if (artillery) {
-    const centers = rng.shuffle(allCells(t));
     const option = bestCenter(view, artillery, at, centers);
     if (option && option.value >= ARTILLERY_THRESHOLD * bestValue) {
       return { type: 'USE_WEAPON', weaponId: 'artillery', target: option.center };
+    }
+  }
+  const airstrike = affordable(view, 'airstrike');
+  if (airstrike) {
+    const option = bestCenter(view, airstrike, at, centers);
+    if (option && option.value >= AIRSTRIKE_THRESHOLD * bestValue) {
+      return { type: 'USE_WEAPON', weaponId: 'airstrike', target: option.center, orientation: option.orientation };
+    }
+  }
+
+  // Density → rough per-cell ship probability, for weapons that can't be compared cell-for-cell.
+  const hunting = unresolvedHits(t).length === 0;
+  const torpedo = affordable(view, 'torpedo');
+  const barrage = affordable(view, 'barrage');
+  if (hunting && (torpedo || barrage)) {
+    const total = unknown.reduce((sum, c) => sum + at(c), 0);
+    const shipCells = view.remainingFleet.reduce((sum, s) => sum + s.cells.length, 0);
+    const p = (c: Coord) => (total > 0 ? Math.min(1, (at(c) / total) * shipCells) : 0);
+    const pBest = p(best);
+    if (torpedo) {
+      let pick: { option: TorpedoOption; pHit: number } | null = null;
+      for (const option of rng.shuffle(torpedoOptions(view))) {
+        const pHit = 1 - option.cells.reduce((miss, c) => miss * (1 - p(c)), 1);
+        if (!pick || pHit > pick.pHit) pick = { option, pHit };
+      }
+      if (pick && pick.pHit >= TORPEDO_MIN_HIT && pBest < 0.5) {
+        return { type: 'USE_WEAPON', weaponId: 'torpedo', target: pick.option.launch, orientation: pick.option.orientation };
+      }
+    }
+    if (barrage && unknown.length) {
+      const expected = ((barrage.shots ?? 1) * unknown.reduce((sum, c) => sum + p(c), 0)) / unknown.length;
+      if (expected >= BARRAGE_THRESHOLD * pBest) return { type: 'USE_WEAPON', weaponId: 'barrage', target: best };
     }
   }
 

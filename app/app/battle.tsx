@@ -1,10 +1,21 @@
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Redirect, router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AppState, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withSequence, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { type Coord, getWeapon, ONLINE_TURN_TIME_MS, patternCells, type ShotEvent } from '@shared/engine';
+import {
+  type Coord,
+  getWeapon,
+  legalTargets,
+  obstacleAt,
+  ONLINE_TURN_TIME_MS,
+  type Orientation,
+  patternCells,
+  type ShotEvent,
+  torpedoLane,
+  torpedoLaunch,
+} from '@shared/engine';
 import { EMOTES } from '@shared/protocol';
 import { playSound } from '@/audio/SoundManager';
 import { BattleGrid } from '@/components/grid/BattleGrid';
@@ -113,11 +124,24 @@ export default function Battle() {
   useBackGuard(openMenu);
 
   const weapon = getWeapon(s.selectedWeapon);
-  const dims = view ? { width: view.rules.grid.width, height: view.rules.grid.height } : { width: 10, height: 10 };
-  const aimPattern = useMemo(
-    () => (weapon && weapon.id !== 'standard' ? (c: Coord) => patternCells(weapon, c, dims) : undefined),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [weapon?.id, dims.width, dims.height],
+  const [orientation, setOrientation] = useState<Orientation>('H');
+  const enemyBoard = view?.enemyBoard;
+  const aimPattern = useMemo(() => {
+    if (!weapon || weapon.id === 'standard' || !enemyBoard) return undefined;
+    if (weapon.kind === 'random') {
+      const open = legalTargets(enemyBoard).filter((c) => obstacleAt(enemyBoard, c) !== 'reef');
+      return () => open;
+    }
+    if (weapon.kind === 'torpedo') return (c: Coord) => torpedoLane(enemyBoard, torpedoLaunch(c, enemyBoard, orientation), orientation);
+    return (c: Coord) => patternCells(weapon, c, enemyBoard, orientation);
+  }, [weapon, enemyBoard, orientation]);
+  const onFire = useCallback(
+    (c: Coord) => {
+      const fire = useMatchStore.getState().fire;
+      if (weapon?.kind === 'torpedo' && enemyBoard) fire(torpedoLaunch(c, enemyBoard, orientation), orientation);
+      else fire(c, orientation);
+    },
+    [weapon, enemyBoard, orientation],
   );
   const enemySonar = useMemo(() => (view ? sonarFrom(view.log, view.viewer) : []), [view]);
   const ownSonar = useMemo(() => (view ? sonarFrom(view.log, view.viewer === 0 ? 1 : 0) : []), [view]);
@@ -135,7 +159,17 @@ export default function Battle() {
   const turnTotal = view.rules.turnTimeMs ?? ONLINE_TURN_TIME_MS;
   const showTimer = online || view.rules.turnTimeMs !== null;
 
-  let status = myTurn ? (weapon && weapon.id !== 'standard' ? `${weapon.name}: pick a target` : 'Your turn: select a target') : 'Enemy is taking aim…';
+  const lane = orientation === 'H' ? 'row' : 'column';
+  const aimHint: Record<string, string> = {
+    barrage: 'Barrage: tap the enemy board to fire',
+    torpedo: `Torpedo: tap a ${lane} to launch`,
+    airstrike: `Airstrike: pick a ${lane} of 4`,
+  };
+  let status = myTurn
+    ? weapon && weapon.id !== 'standard'
+      ? (aimHint[weapon.id] ?? `${weapon.name}: pick a target`)
+      : 'Your turn: select a target'
+    : 'Enemy is taking aim…';
   if (meta.connection === 'reconnecting') status = 'Connection lost. Reconnecting…';
   else if (meta.opponent && !meta.opponent.connected) {
     const left = meta.opponentReconnectDeadline ? Math.max(0, Math.ceil((meta.opponentReconnectDeadline - now) / 1000)) : 0;
@@ -162,7 +196,7 @@ export default function Battle() {
               board={view.enemyBoard}
               kind="target"
               interactive={canFire && enemyLarge}
-              onFire={(c) => s.fire(c)}
+              onFire={onFire}
               aimPattern={aimPattern}
               aimTone={weapon?.kind === 'reveal' ? 'scan' : 'attack'}
               sonar={enemySonar}
@@ -189,9 +223,26 @@ export default function Battle() {
           {s.emote && <EmoteBubble key={s.emote.key} emoteKey={s.emote.key} id={s.emote.id} fromMe={s.emote.fromMe} />}
         </Animated.View>
 
-        <Text style={[styles.status, { color: myTurn ? colors.radarGreen : colors.steel400 }]} accessibilityLiveRegion="polite">
-          {status}
-        </Text>
+        <View style={styles.statusRow}>
+          <Text style={[styles.status, { color: myTurn ? colors.radarGreen : colors.steel400 }]} accessibilityLiveRegion="polite">
+            {status}
+          </Text>
+          {myTurn && weapon?.rotatable ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Aim along a ${lane}. Tap to switch.`}
+              onPress={() => {
+                playSound('click');
+                setOrientation((o) => (o === 'H' ? 'V' : 'H'));
+              }}
+              style={styles.rotateChip}
+              testID="rotate-aim"
+            >
+              <MaterialCommunityIcons name={orientation === 'H' ? 'arrow-left-right' : 'arrow-up-down'} size={16} color={colors.navy900} />
+              <Text style={styles.rotateText}>{orientation === 'H' ? 'ROW' : 'COLUMN'}</Text>
+            </Pressable>
+          ) : null}
+        </View>
 
         <View style={styles.bottomRow}>
           <PlayerCard info={meta.me} shipsRemaining={view.me.shipsRemaining} active={myTurn} compact />
@@ -278,7 +329,18 @@ const styles = StyleSheet.create({
   sidePanel: { position: 'absolute', justifyContent: 'flex-start', gap: 6 },
   boardLabel: { fontFamily: fonts.bodyBold, fontSize: 11, color: colors.steel400, letterSpacing: 1.5 },
   statLine: { fontFamily: fonts.bodyBold, fontSize: 15, color: colors.steel200 },
-  status: { fontFamily: fonts.heading, fontSize: 15, letterSpacing: 1, textAlign: 'center', marginVertical: 8, color: colors.steel200 },
+  statusRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginVertical: 8 },
+  status: { flexShrink: 1, fontFamily: fonts.heading, fontSize: 15, letterSpacing: 1, textAlign: 'center', color: colors.steel200 },
+  rotateChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
+    backgroundColor: colors.brass,
+  },
+  rotateText: { fontFamily: fonts.bodyBold, fontSize: 12, color: colors.navy900, letterSpacing: 1 },
   bottomRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 'auto' },
   bottomActions: { flexDirection: 'row', gap: 8 },
   roundBtn: {

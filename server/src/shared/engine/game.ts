@@ -1,5 +1,6 @@
 import { resolveShot, resolveSonar } from './attack';
 import {
+  cellAt,
   cloneBoard,
   createBoard,
   inBounds,
@@ -7,8 +8,10 @@ import {
   isShipSunk,
   isSolidObstacle,
   isTargetable,
+  key,
   legalTargets,
   obstacleAt,
+  shipAt,
 } from './board';
 import { CHARGE, MAX_CONSECUTIVE_TIMEOUTS } from './config';
 import { generateObstacles, obstacleFields, visibleObstacles } from './obstacles';
@@ -33,7 +36,7 @@ import type {
   ShotResult,
   TargetView,
 } from './types';
-import { canUseWeapon, getWeapon, patternCells } from './weapons';
+import { canUseWeapon, getWeapon, patternCells, torpedoHasTarget, torpedoLane, torpedoStep } from './weapons';
 
 export const other = (p: PlayerIndex): PlayerIndex => (p === 0 ? 1 : 0);
 
@@ -244,7 +247,7 @@ export function applyAction(state: GameState, action: Action): ActionResult {
       const defenderIdx = other(action.player);
       const board = state.players[defenderIdx].board;
       if (!inBounds(board, action.target)) return fail(state, 'OUT_OF_BOUNDS');
-      const area = patternCells(weapon, action.target, board, action.orientation);
+      const orientation = action.orientation ?? 'H';
 
       const d = startDraft(state);
       const usage: Partial<PlayerState> = {
@@ -261,26 +264,61 @@ export function applyAction(state: GameState, action: Action): ActionResult {
           weaponId: weapon.id,
           target: action.target,
           results: [],
-          sonar: resolveSonar(board, area),
+          sonar: resolveSonar(board, patternCells(weapon, action.target, board, orientation)),
           turnPassed: true,
         });
         return finishDraft(d);
       }
 
-      const targets = area.filter((c) => isTargetable(board, c));
-      if (targets.length === 0) return fail(state, 'ALREADY_FIRED');
       let current: Board = board;
       const results: ShotResult[] = [];
       const knownEmpty: Coord[] = [];
-      for (const c of targets) {
-        if (!isTargetable(current, c)) continue; // may have become knownEmpty after a sink in this volley
+      let path: Coord[] | undefined;
+      const fireAt = (c: Coord) => {
         const r = resolveShot(current, c, state.rules);
         current = r.board;
         results.push(r.result);
         knownEmpty.push(...r.knownEmpty);
+      };
+
+      if (weapon.kind === 'random') {
+        const pool = (b: Board) => legalTargets(b).filter((c) => obstacleAt(b, c) !== 'reef');
+        if (pool(board).length === 0) return fail(state, 'ALREADY_FIRED');
+        for (let i = 0; i < (weapon.shots ?? 1); i++) {
+          const open = pool(current);
+          if (open.length === 0) break;
+          fireAt(d.rng.pick(open));
+        }
+      } else if (weapon.kind === 'torpedo') {
+        if (!torpedoStep(action.target, board, orientation)) return fail(state, 'OUT_OF_BOUNDS');
+        const lane = torpedoLane(board, action.target, orientation);
+        if (lane.length === 0) return fail(state, 'BLOCKED');
+        if (!torpedoHasTarget(board, lane)) return fail(state, 'ALREADY_FIRED');
+        path = [];
+        for (const c of lane) {
+          path.push(c);
+          // Passes over cells already fired at and over reefs.
+          if (cellAt(current, c) !== 'unknown') continue;
+          const ob = obstacleAt(current, c);
+          if (ob === 'reef') continue;
+          if (ob === 'mine' || shipAt(current.ships, c)) {
+            fireAt(c);
+            break;
+          }
+          current = { ...current, shots: { ...current.shots, [key(c)]: 'knownEmpty' } };
+          knownEmpty.push(c);
+        }
+      } else {
+        const targets = patternCells(weapon, action.target, board, orientation).filter((c) => isTargetable(board, c));
+        if (targets.length === 0) return fail(state, 'ALREADY_FIRED');
+        for (const c of targets) {
+          if (isTargetable(current, c)) fireAt(c); // may have become knownEmpty after a sink in this volley
+        }
       }
+
       const hits = results.filter((r) => r.result !== 'miss').length;
-      const mineTriggered = results.some((r) => r.obstacle === 'mine');
+      // A torpedo that runs into a mine just detonates it; only shells fired onto a mine cost a turn.
+      const mineTriggered = weapon.kind !== 'torpedo' && results.some((r) => r.obstacle === 'mine');
       setPlayer(d, defenderIdx, { board: current });
       setPlayer(d, action.player, {
         ...usage,
@@ -295,6 +333,7 @@ export function applyAction(state: GameState, action: Action): ActionResult {
         target: action.target,
         results,
         knownEmpty: knownEmpty.length ? knownEmpty : undefined,
+        path,
         turnPassed: true,
         mineTriggered: mineTriggered || undefined,
       });

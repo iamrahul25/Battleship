@@ -130,6 +130,71 @@ export function SonarSweep({ center, s, cols, rows }: { center: Coord; s: number
   );
 }
 
+/** A jet streaking along the strike line, with its shadow on the water. */
+export function AirstrikeFlight({ cells, s, duration }: { cells: Coord[]; s: number; duration: number }) {
+  const p = useProgress(duration);
+  const first = cells[0];
+  const last = cells[cells.length - 1];
+  const vertical = first.x === last.x && first.y !== last.y;
+  const dx = vertical ? 0 : 1;
+  const dy = vertical ? 1 : 0;
+  const sx = (first.x + 0.5 - dx * 2) * s;
+  const sy = (first.y + 0.5 - dy * 2) * s;
+  const ex = (last.x + 0.5 + dx * 2) * s;
+  const ey = (last.y + 0.5 + dy * 2) * s;
+  const at = (t: number, axis: 'x' | 'y') => {
+    'worklet';
+    return axis === 'x' ? sx + (ex - sx) * t : sy + (ey - sy) * t;
+  };
+  const hx = useDerivedValue(() => at(p.value, 'x'));
+  const hy = useDerivedValue(() => at(p.value, 'y'));
+  const shx = useDerivedValue(() => at(p.value, 'x') + s * 0.35);
+  const shy = useDerivedValue(() => at(p.value, 'y') + s * 0.45);
+  const t1x = useDerivedValue(() => at(Math.max(0, p.value - 0.05), 'x'));
+  const t1y = useDerivedValue(() => at(Math.max(0, p.value - 0.05), 'y'));
+  const t2x = useDerivedValue(() => at(Math.max(0, p.value - 0.11), 'x'));
+  const t2y = useDerivedValue(() => at(Math.max(0, p.value - 0.11), 'y'));
+  return (
+    <Group>
+      <Circle cx={shx} cy={shy} r={s * 0.22} color="#000" opacity={0.25}>
+        <BlurMask blur={s * 0.1} style="normal" />
+      </Circle>
+      <Circle cx={t2x} cy={t2y} r={s * 0.08} color="#E8F4FF" opacity={0.3} />
+      <Circle cx={t1x} cy={t1y} r={s * 0.11} color="#E8F4FF" opacity={0.5} />
+      <Circle cx={hx} cy={hy} r={s * 0.17} color="#D8DEE6">
+        <BlurMask blur={2} style="solid" />
+      </Circle>
+    </Group>
+  );
+}
+
+/** A torpedo running along its track with a foaming wake. */
+export function TorpedoRun({ path, s, duration }: { path: Coord[]; s: number; duration: number }) {
+  const p = useProgress(duration);
+  const first = path[0];
+  const last = path[path.length - 1];
+  const step = path.length > 1 ? { x: Math.sign(path[1].x - first.x), y: Math.sign(path[1].y - first.y) } : { x: 0, y: 0 };
+  const sx = (first.x + 0.5 - step.x * 0.6) * s;
+  const sy = (first.y + 0.5 - step.y * 0.6) * s;
+  const ex = (last.x + 0.5) * s;
+  const ey = (last.y + 0.5) * s;
+  const hx = useDerivedValue(() => sx + (ex - sx) * p.value);
+  const hy = useDerivedValue(() => sy + (ey - sy) * p.value);
+  const wakeW = useDerivedValue(() => Math.max(1, Math.abs(ex - sx) * p.value) + (step.y ? s * 0.22 : 0));
+  const wakeH = useDerivedValue(() => Math.max(1, Math.abs(ey - sy) * p.value) + (step.x ? s * 0.22 : 0));
+  const wakeX = useDerivedValue(() => (step.x < 0 ? hx.value : sx) - (step.y ? s * 0.11 : 0));
+  const wakeY = useDerivedValue(() => (step.y < 0 ? hy.value : sy) - (step.x ? s * 0.11 : 0));
+  return (
+    <Group>
+      <Rect x={wakeX} y={wakeY} width={wakeW} height={wakeH} color="#E8F4FF" opacity={0.35}>
+        <BlurMask blur={s * 0.08} style="normal" />
+      </Rect>
+      <Circle cx={hx} cy={hy} r={s * 0.16} color="#1E2228" />
+      <Circle cx={hx} cy={hy} r={s * 0.07} color={colors.signalRed} />
+    </Group>
+  );
+}
+
 /** Plays the animation for one shot event on the board it landed on. */
 export function ShotFx({
   event,
@@ -152,14 +217,27 @@ export function ShotFx({
 }) {
   if (event.weaponId === 'sonar') return <SonarSweep center={event.target} s={s} cols={cols} rows={rows} />;
   if (stage === 'flight') {
-    return reduced ? null : <ShellFlight to={event.target} s={s} cols={cols} rows={rows} duration={flightMs} fromTop={fromTop} />;
+    if (reduced) return null;
+    if (event.weaponId === 'torpedo' && event.path?.length) return <TorpedoRun path={event.path} s={s} duration={flightMs} />;
+    if (event.weaponId === 'airstrike' && event.results.length) {
+      return <AirstrikeFlight cells={event.results.map((r) => r.coord)} s={s} duration={flightMs} />;
+    }
+    const targets = event.weaponId === 'barrage' ? event.results.map((r) => r.coord) : [event.target];
+    return (
+      <Group>
+        {targets.map((to, i) => (
+          <ShellFlight key={i} to={to} s={s} cols={cols} rows={rows} duration={flightMs} fromTop={fromTop} />
+        ))}
+      </Group>
+    );
   }
+  const staggered = event.weaponId === 'artillery' || event.weaponId === 'airstrike' || event.weaponId === 'barrage';
   const items: { c: Coord; kind: 'hit' | 'miss' | 'sunk'; delay: number }[] = [];
   event.results.forEach((r, i) => {
-    const base = event.weaponId === 'artillery' ? i * 90 : 0;
+    const base = staggered ? i * 90 : 0;
     if (r.result === 'sunk' && r.ship) {
       r.ship.cells.forEach((c, j) => items.push({ c, kind: 'sunk', delay: base + j * 110 }));
-    } else items.push({ c: r.coord, kind: r.result, delay: base });
+    } else items.push({ c: r.coord, kind: r.obstacle === 'mine' ? 'hit' : r.result, delay: base });
   });
   return (
     <Group>

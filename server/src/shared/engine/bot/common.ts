@@ -1,13 +1,14 @@
 import { allCells, cellAt, inBounds, key, neighbours4 } from '../board';
 import { fleetInstances } from '../placement';
-import type { Coord, PublicView, RuleSet, ShipDef, ShotResult, SonarResult, TargetView } from '../types';
-import { canUseWeapon, getWeapon, patternCells, type WeaponDef } from '../weapons';
+import type { Rng } from '../rng';
+import type { Coord, Orientation, PublicView, RuleSet, ShipDef, ShotResult, SonarResult, TargetView } from '../types';
+import { canUseWeapon, getWeapon, patternCells, torpedoLane, type WeaponDef } from '../weapons';
 
 export type Difficulty = 'easy' | 'medium' | 'hard';
 
 export type BotAction =
   | { type: 'FIRE'; target: Coord }
-  | { type: 'USE_WEAPON'; weaponId: string; target: Coord };
+  | { type: 'USE_WEAPON'; weaponId: string; target: Coord; orientation?: Orientation };
 
 /** Exactly what a human opponent could see. Bots never get the real enemy board. */
 export interface BotView {
@@ -103,26 +104,73 @@ export function affordable(view: BotView, weaponId: string): WeaponDef | null {
 }
 
 /** Number of unknown cells a weapon centered at `c` would touch. */
-export function unknownInPattern(view: BotView, weapon: WeaponDef, c: Coord): number {
-  return patternCells(weapon, c, view.target).filter((p) => cellAt(view.target, p) === 'unknown').length;
+export function unknownInPattern(view: BotView, weapon: WeaponDef, c: Coord, orientation: Orientation = 'H'): number {
+  return patternCells(weapon, c, view.target, orientation).filter((p) => cellAt(view.target, p) === 'unknown').length;
 }
 
-/** Best weapon center by a per-cell score function (ties broken by rng order). */
+/** Best weapon center by a per-cell score function (ties broken by rng order). Rotatable weapons try both orientations. */
 export function bestCenter(
   view: BotView,
   weapon: WeaponDef,
   score: (c: Coord) => number,
   pickOrder: Coord[],
-): { center: Coord; value: number } | null {
-  let best: { center: Coord; value: number } | null = null;
+): { center: Coord; value: number; orientation: Orientation } | null {
+  let best: { center: Coord; value: number; orientation: Orientation } | null = null;
+  const orientations: Orientation[] = weapon.rotatable ? ['H', 'V'] : ['H'];
   for (const c of pickOrder) {
     if (!inBounds(view.target, c)) continue;
-    const cells = patternCells(weapon, c, view.target).filter((p) => cellAt(view.target, p) === 'unknown');
-    if (cells.length === 0) continue;
-    const value = cells.reduce((sum, p) => sum + score(p), 0);
-    if (!best || value > best.value) best = { center: c, value };
+    for (const orientation of orientations) {
+      const cells = patternCells(weapon, c, view.target, orientation).filter((p) => cellAt(view.target, p) === 'unknown');
+      if (cells.length === 0) continue;
+      const value = cells.reduce((sum, p) => sum + score(p), 0);
+      if (!best || value > best.value) best = { center: c, value, orientation };
+    }
   }
   return best;
+}
+
+export interface TorpedoOption {
+  launch: Coord;
+  orientation: Orientation;
+  /** Unrevealed cells the torpedo would sweep, in travel order. */
+  cells: Coord[];
+}
+
+/** Every launch (both edges of every row and column) whose lane still has an unrevealed cell. */
+export function torpedoOptions(view: BotView): TorpedoOption[] {
+  const t = view.target;
+  const out: TorpedoOption[] = [];
+  const add = (launch: Coord, orientation: Orientation) => {
+    const lane = torpedoLane(t, launch, orientation);
+    const cells = lane.filter((c) => cellAt(t, c) === 'unknown');
+    if (cells.length) out.push({ launch, orientation, cells });
+  };
+  for (let y = 0; y < t.height; y++) {
+    add({ x: 0, y }, 'H');
+    add({ x: t.width - 1, y }, 'H');
+  }
+  for (let x = 0; x < t.width; x++) {
+    add({ x, y: 0 }, 'V');
+    add({ x, y: t.height - 1 }, 'V');
+  }
+  return out;
+}
+
+/** A legal, randomly aimed use of `weapon`, or null when it has nothing left to hit. */
+export function randomWeaponAction(view: BotView, weapon: WeaponDef, rng: Rng): BotAction | null {
+  const unknown = unknownCells(view.target);
+  if (!unknown.length) return null;
+  if (weapon.kind === 'random') return { type: 'USE_WEAPON', weaponId: weapon.id, target: rng.pick(unknown) };
+  if (weapon.kind === 'torpedo') {
+    const options = torpedoOptions(view);
+    if (!options.length) return null;
+    const o = rng.pick(options);
+    return { type: 'USE_WEAPON', weaponId: weapon.id, target: o.launch, orientation: o.orientation };
+  }
+  const orientation: Orientation = weapon.rotatable && rng.next() < 0.5 ? 'V' : 'H';
+  const centers = unknown.filter((c) => unknownInPattern(view, weapon, c, orientation) > 0);
+  if (!centers.length) return null;
+  return { type: 'USE_WEAPON', weaponId: weapon.id, target: rng.pick(centers), orientation };
 }
 
 /** Contiguous unresolved-hit lines (length ≥ 2) give the open cells at both ends. */

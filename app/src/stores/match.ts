@@ -149,11 +149,14 @@ export const useMatchStore = create<MatchState>()((set, get) => {
     const reduced = useSettingsStore.getState().reducedMotion;
     const mine = event.by === view.viewer;
     const isSonar = event.weaponId === 'sonar';
-    const isArtillery = event.weaponId === 'artillery';
+    const isTorpedo = event.weaponId === 'torpedo';
+    // Multi-cell volleys: heavier sound, shake and staggered impacts.
+    const isArtillery = event.weaponId === 'artillery' || event.weaponId === 'airstrike' || event.weaponId === 'barrage';
     const sunk = event.results.some((r) => r.result === 'sunk');
     const hit = sunk || event.results.some((r) => r.result === 'hit');
-    const flightMs = isSonar ? 0 : reduced ? 220 : isArtillery ? 650 : 450;
-    const impactMs = isSonar ? 1000 : sunk ? 1250 : isArtillery ? 1000 : hit ? 650 : 520;
+    const torpedoMs = Math.min(1100, Math.max(400, (event.path?.length ?? 1) * 90));
+    const flightMs = isSonar ? 0 : reduced ? 220 : isTorpedo ? torpedoMs : event.weaponId === 'airstrike' ? 750 : isArtillery ? 650 : 450;
+    const impactMs = isSonar ? 1000 : sunk ? 1250 : isArtillery ? 1000 : hit ? 650 : isTorpedo && !event.results.length ? 300 : 520;
     const id = fxId++;
 
     set({ fx: { id, event, mine, stage: flightMs ? 'flight' : 'impact', flightMs, impactMs }, awaiting: false });
