@@ -44,6 +44,60 @@ export const FleetPresets: Record<GridPresetId, ShipDef[]> = {
 
 export const CLASSIC_FLEET = FleetPresets.medium;
 
+export const BOARD_SIZE_MIN = 7;
+export const BOARD_SIZE_MAX = 15;
+export const DEFAULT_BOARD_SIZE = GridPresets.medium.width;
+
+/** Board sizes offered in the setup UI; anything else in range is "custom". */
+export const BoardSizePresets = {
+  small: GridPresets.small.width,
+  medium: GridPresets.medium.width,
+  large: GridPresets.large.width,
+} as const;
+
+const SHIP_CLASS_BY_LENGTH: Record<number, [id: string, name: string]> = {
+  6: ['dreadnought', 'Dreadnought'],
+  5: ['carrier', 'Carrier'],
+  4: ['battleship', 'Battleship'],
+  3: ['cruiser', 'Cruiser'],
+  2: ['destroyer', 'Destroyer'],
+};
+
+/** Ship lengths for square boards without a hand-tuned preset (~15–20% ship cells). */
+const SCALED_FLEET_LENGTHS: Record<number, number[]> = {
+  7: [4, 3, 2],
+  9: [5, 4, 3, 2],
+  11: [5, 4, 4, 3, 3, 2],
+  13: [5, 5, 4, 4, 3, 3, 2, 2],
+  14: [6, 5, 4, 4, 3, 3, 3, 2, 2],
+};
+
+function fleetFromLengths(lengths: number[]): ShipDef[] {
+  const counts = new Map<number, number>();
+  for (const len of lengths) counts.set(len, (counts.get(len) ?? 0) + 1);
+  return [...counts.entries()]
+    .sort((a, b) => b[0] - a[0])
+    .map(([len, count]) => ship(SHIP_CLASS_BY_LENGTH[len][0], SHIP_CLASS_BY_LENGTH[len][1], len, count));
+}
+
+export function clampBoardSize(n: number): number {
+  return Math.max(BOARD_SIZE_MIN, Math.min(BOARD_SIZE_MAX, Math.round(n)));
+}
+
+/** Fleet auto-scaled to an n×n board. */
+export function fleetForSize(n: number): ShipDef[] {
+  const size = clampBoardSize(n);
+  const preset = (Object.keys(GridPresets) as GridPresetId[]).find((id) => GridPresets[id].width === size);
+  if (preset) return FleetPresets[preset];
+  return fleetFromLengths(SCALED_FLEET_LENGTHS[size]);
+}
+
+/** Grid + fleet overrides for an n×n board. */
+export function boardRules(n: number): Pick<RuleSet, 'grid' | 'fleet'> {
+  const size = clampBoardSize(n);
+  return { grid: { width: size, height: size }, fleet: fleetForSize(size) };
+}
+
 export const ONLINE_TURN_TIME_MS = 30_000;
 export const ONLINE_PLACEMENT_TIME_MS = 60_000;
 export const MAX_CONSECUTIVE_TIMEOUTS = 3;

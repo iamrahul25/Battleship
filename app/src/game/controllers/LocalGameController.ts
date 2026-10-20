@@ -1,6 +1,7 @@
 import {
   type Action,
   applyAction,
+  boardRules,
   type Bot,
   botViewFromPublic,
   BOT_PROFILES,
@@ -8,6 +9,7 @@ import {
   createBot,
   createGame,
   createRng,
+  DEFAULT_BOARD_SIZE,
   type Difficulty,
   type GameMode,
   type GameState,
@@ -35,6 +37,8 @@ export interface LocalGameOptions {
   bonusShotOnHit: boolean;
   allowTouching: boolean;
   offlineTimer: boolean;
+  /** Square board edge (defaults to Medium). */
+  boardSize?: number;
   me: PlayerCardInfo;
   seed?: number;
 }
@@ -73,6 +77,7 @@ export class LocalGameController implements GameController {
     this.rules = saved
       ? saved.state.rules
       : rulesForMode(options.mode, {
+          ...boardRules(options.boardSize ?? DEFAULT_BOARD_SIZE),
           bonusShotOnHit: options.bonusShotOnHit,
           allowTouching: options.allowTouching,
           turnTimeMs: options.offlineTimer ? ONLINE_TURN_TIME_MS : null,

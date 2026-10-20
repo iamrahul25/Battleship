@@ -2,13 +2,18 @@ import { describe, expect, it } from 'vitest';
 import {
   allCells,
   applyAction,
+  BOARD_SIZE_MAX,
+  BOARD_SIZE_MIN,
+  boardRules,
   canPlace,
+  CLASSIC_FLEET,
   cellAt,
   coordLabel,
   createBoard,
   createGame,
   createRng,
   createRules,
+  fleetForSize,
   FleetPresets,
   getPublicView,
   GridPresets,
@@ -46,6 +51,20 @@ describe('config', () => {
   it('classic fleet has 5 ships / 17 cells', () => {
     expect(totalShips(rules)).toBe(5);
     expect(totalShipCells(rules)).toBe(17);
+  });
+  it('fleet scales with board size', () => {
+    expect(fleetForSize(10)).toBe(CLASSIC_FLEET);
+    expect(boardRules(3).grid).toEqual({ width: BOARD_SIZE_MIN, height: BOARD_SIZE_MIN });
+    expect(boardRules(99).grid).toEqual({ width: BOARD_SIZE_MAX, height: BOARD_SIZE_MAX });
+    let prevShips = 0;
+    for (let n = BOARD_SIZE_MIN; n <= BOARD_SIZE_MAX; n++) {
+      const r = createRules(boardRules(n));
+      const density = totalShipCells(r) / (n * n);
+      expect(density).toBeGreaterThan(0.14);
+      expect(density).toBeLessThan(0.2);
+      expect(totalShips(r)).toBeGreaterThanOrEqual(prevShips);
+      prevShips = totalShips(r);
+    }
   });
   it('modes toggle power-ups', () => {
     expect(rulesForMode('classic').powerUpsEnabled).toBe(false);
@@ -134,6 +153,17 @@ describe('placement', () => {
       for (let seed = 0; seed < 50; seed++) {
         const ships = randomFleet(r, createRng(seed));
         expect(validateFleet(r, ships.map((s) => ({ defId: s.defId, origin: s.origin, rotation: s.rotation }))).ok).toBe(true);
+      }
+    }
+  });
+  it('randomFleet works for every board size, touching or not', () => {
+    for (let n = BOARD_SIZE_MIN; n <= BOARD_SIZE_MAX; n++) {
+      for (const allowTouching of [false, true]) {
+        const r = createRules({ ...boardRules(n), allowTouching });
+        for (let seed = 0; seed < 50; seed++) {
+          const ships = randomFleet(r, createRng(seed));
+          expect(validateFleet(r, ships.map((s) => ({ defId: s.defId, origin: s.origin, rotation: s.rotation }))).ok).toBe(true);
+        }
       }
     }
   });

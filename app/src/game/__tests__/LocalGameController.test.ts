@@ -1,4 +1,4 @@
-import { createBot, createRng, type Difficulty, rulesForMode } from '@shared/engine';
+import { createBot, createRng, type Difficulty, fleetForSize, rulesForMode } from '@shared/engine';
 import { LocalGameController, type LocalGameOptions } from '../controllers/LocalGameController';
 import type { ControllerEvent } from '../controllers/types';
 
@@ -137,6 +137,15 @@ describe('LocalGameController', () => {
   it('builds classic rules without power-ups', () => {
     const c = new LocalGameController(options({ mode: 'classic' }));
     expect(c.rules).toEqual(rulesForMode('classic', { bonusShotOnHit: true, allowTouching: false, turnTimeMs: null }));
+    c.dispose();
+  });
+
+  it.each([7, 8, 12, 15])('plays a full game on a %i×%i board', (n) => {
+    const c = new LocalGameController(options({ boardSize: n }));
+    expect(c.rules.grid).toEqual({ width: n, height: n });
+    expect(c.rules.fleet).toEqual(fleetForSize(n));
+    const events = playOut(c);
+    expect(events.some((e) => e.type === 'gameOver')).toBe(true);
     c.dispose();
   });
 });

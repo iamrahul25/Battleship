@@ -1,11 +1,23 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { BOT_PROFILES, type Difficulty, type GameMode } from '@shared/engine';
+import {
+  BOARD_SIZE_MAX,
+  BOARD_SIZE_MIN,
+  boardRules,
+  BoardSizePresets,
+  BOT_PROFILES,
+  clampBoardSize,
+  createRules,
+  type Difficulty,
+  type GameMode,
+  totalShipCells,
+  totalShips,
+} from '@shared/engine';
 import { playSound } from '@/audio/SoundManager';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
-import { Segmented, Toggle } from '@/components/ui/controls';
+import { Segmented, Slider, Toggle } from '@/components/ui/controls';
 import { Panel } from '@/components/ui/Panel';
 import { Screen } from '@/components/ui/Screen';
 import { LocalGameController } from '@/game/controllers/LocalGameController';
@@ -19,6 +31,8 @@ import { colors, fonts, text } from '@/theme';
 
 const DIFFICULTIES: Difficulty[] = ['easy', 'medium', 'hard'];
 const STARS: Record<Difficulty, number> = { easy: 1, medium: 2, hard: 3 };
+const PRESET_IDS = Object.keys(BoardSizePresets) as (keyof typeof BoardSizePresets)[];
+type SizeChoice = (typeof PRESET_IDS)[number] | 'custom';
 
 export default function BotSetup() {
   const settings = useSettingsStore();
@@ -28,15 +42,26 @@ export default function BotSetup() {
   const [mode, setMode] = useState<GameMode>(settings.defaultMode);
   const [bonus, setBonus] = useState(settings.bonusShotOnHit);
   const [touching, setTouching] = useState(settings.allowTouching);
+  const [boardSize, setBoardSize] = useState(clampBoardSize(settings.boardSize));
+  const [customSize, setCustomSize] = useState(!PRESET_IDS.some((id) => BoardSizePresets[id] === settings.boardSize));
+  const sizeChoice: SizeChoice = customSize ? 'custom' : (PRESET_IDS.find((id) => BoardSizePresets[id] === boardSize) ?? 'custom');
+  const sizeRules = createRules(boardRules(boardSize));
+
+  const chooseSize = (choice: SizeChoice) => {
+    setCustomSize(choice === 'custom');
+    if (choice !== 'custom') setBoardSize(BoardSizePresets[choice]);
+  };
 
   const start = () => {
     void clearSavedGame();
+    settings.set({ boardSize });
     const controller = new LocalGameController({
       difficulty,
       mode,
       bonusShotOnHit: bonus,
       allowTouching: touching,
       offlineTimer: settings.offlineTimer,
+      boardSize,
       me: { name: profile.nickname || 'You', avatarId: profile.avatarId, wins: 0, losses: 0, connected: true },
     });
     useMatchStore.getState().attach(controller);
@@ -89,6 +114,30 @@ export default function BotSetup() {
           { value: 'arsenal', label: 'ARSENAL', hint: 'Artillery & sonar' },
         ]}
       />
+
+      <Text style={styles.section}>BOARD</Text>
+      <Segmented
+        value={sizeChoice}
+        onChange={chooseSize}
+        options={[
+          ...PRESET_IDS.map((id) => ({ value: id, label: id.toUpperCase(), hint: `${BoardSizePresets[id]}×${BoardSizePresets[id]}` })),
+          { value: 'custom' as const, label: 'CUSTOM', hint: `${BOARD_SIZE_MIN}–${BOARD_SIZE_MAX}` },
+        ]}
+      />
+      {customSize && (
+        <Slider
+          label="Board size"
+          value={boardSize}
+          onChange={setBoardSize}
+          min={BOARD_SIZE_MIN}
+          max={BOARD_SIZE_MAX}
+          step={1}
+          format={(v) => `${v}×${v}`}
+        />
+      )}
+      <Text style={[text.caption, { marginTop: 6 }]}>
+        {totalShips(sizeRules)} ships · {totalShipCells(sizeRules)} ship cells on a {boardSize}×{boardSize} grid
+      </Text>
 
       <Panel title="Rules" style={{ marginTop: 16 }}>
         <Toggle label="Bonus shot on hit" hint="Keep firing after every hit" value={bonus} onChange={setBonus} />

@@ -32,6 +32,7 @@
 22. [Future Features (Post-MVP) Design Notes](#22-future-features-post-mvp-design-notes)
 23. [Risks & Mitigations](#23-risks--mitigations)
 24. [Definition of Done (MVP)](#24-definition-of-done-mvp)
+25. [Expansion v2: Sizes, Shapes, Obstacles, Weapons](#25-expansion-v2-sizes-shapes-obstacles-weapons)
 
 ---
 
@@ -1103,3 +1104,65 @@ Estimates assume one developer; adjust as needed.
 - [ ] Profile shows win/loss and accuracy; at least 12 badges can be unlocked.
 - [ ] Engine and server test suites pass in CI; no opponent-fleet leak test passes.
 - [ ] Runs at ~60 fps on a mid-range Android phone.
+
+---
+
+## 25. Expansion v2: Sizes, Shapes, Obstacles, Weapons
+
+Agreed scope. Everything ships for **Vs Bot and Online**. Quick Match always uses standard
+settings (Medium board, default obstacles); Private Rooms let the host choose everything.
+
+### 25.1 Board sizes
+- Presets: **Small 8×8**, **Medium 10×10** (default), **Large 12×12**, plus **Custom** square
+  board via slider, **7–15**.
+- Fleet is auto-scaled per size (`fleetForSize(n)`), ~15–20% of cells are ship cells:
+
+| Size | Ship lengths |
+|---|---|
+| 7 | 4, 3, 2 |
+| 8 | 4, 3, 3, 2 |
+| 9 | 5, 4, 3, 2 |
+| 10 | 5, 4, 3, 3, 2 (classic) |
+| 11 | 5, 4, 4, 3, 3, 2 |
+| 12 | 5, 4, 4, 3, 3, 2, 2 |
+| 13 | 5, 5, 4, 4, 3, 3, 2, 2 |
+| 14 | 6, 5, 4, 4, 3, 3, 3, 2, 2 |
+| 15 | 6, 5, 4, 4, 3, 3, 3, 2, 2, 2 |
+
+### 25.2 Ship shapes
+- **Classic** mode keeps the straight-only fleet.
+- **Arsenal** mode always uses a **mixed fleet**: straight ships plus **T**, **L** and **Z**
+  tetromino ships (4 cells each), swapped in for some mid-size straight ships. All 4
+  rotations are allowed for shaped ships.
+- Ship art keeps the current realistic style, cleaned up; shaped ships get dedicated hulls.
+
+### 25.3 Obstacles
+Setting on game setup: **None / Few / Many** (scaled by board area). Layout is random per
+board, with the same count and types for both players. Ships cannot be placed on obstacles.
+Obstacles may touch ships.
+
+| Obstacle | Size | Visible to enemy | Can be shot | Torpedo |
+|---|---|---|---|---|
+| Rock | 1 cell | Yes | No | Stops it |
+| Island | 2–3 cell cluster | Yes | No | Stops it |
+| Reef | 1 cell | Yes | Yes (counts as a miss) | Passes over |
+| Mine | 1 cell | **No** (hidden) | Yes: shooter **skips their next turn** | Stops it, no penalty |
+
+### 25.4 Weapons (Arsenal)
+Charge: max 100, +20 per hit, +40 per sunk ship, +10 after 3 misses in a row (unchanged).
+Suggested costs, open to tuning:
+
+| Weapon | Effect | Cost | Uses/match |
+|---|---|---|---|
+| Heavy Artillery | Plus-shaped 5 cells (existing) | 100 | 2 |
+| Sonar Scan | Counts ship cells in 3×3 (existing) | 60 | ∞ |
+| Barrage | 4 random shots anywhere on unrevealed enemy cells | 50 | 2 |
+| Airstrike | 4-cell line, player picks horizontal/vertical | 80 | 2 |
+| Torpedo | Player picks row/column **and** start edge; travels until it hits the first ship cell; cells passed are marked empty | 70 | 2 |
+
+### 25.5 Delivery phases
+1. Board sizes (Vs Bot).
+2. Ship shapes + refined ship art.
+3. Obstacles.
+4. New weapons (Barrage, Airstrike, Torpedo) incl. bot usage.
+5. Online: private room settings, server validation, protocol updates.

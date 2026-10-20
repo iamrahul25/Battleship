@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { type GestureResponderEvent, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { useAnimatedStyle, withSpring } from 'react-native-reanimated';
 import { playSound } from '@/audio/SoundManager';
@@ -64,28 +64,42 @@ export function Segmented<T extends string>({
   );
 }
 
-export function Slider({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
+export function Slider({
+  label,
+  value,
+  onChange,
+  min = 0,
+  max = 1,
+  step = 0.05,
+  format = (v) => `${Math.round(v * 100)}%`,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+  min?: number;
+  max?: number;
+  step?: number;
+  format?: (v: number) => string;
+}) {
   const [width, setWidth] = useState(1);
-  const lastTick = useRef(0);
+  const fraction = (value - min) / (max - min);
   const update = (e: GestureResponderEvent) => {
-    const v = Math.max(0, Math.min(1, e.nativeEvent.locationX / width));
-    const rounded = Math.round(v * 20) / 20;
-    if (rounded !== lastTick.current) {
-      lastTick.current = rounded;
-      haptic('selection');
-    }
+    const f = Math.max(0, Math.min(1, e.nativeEvent.locationX / width));
+    const rounded = Number((min + Math.round((f * (max - min)) / step) * step).toFixed(6));
+    if (rounded === value) return;
+    haptic('selection');
     onChange(rounded);
   };
   return (
     <View style={styles.sliderWrap}>
       <View style={styles.sliderHeader}>
         <Text style={text.bodyBold}>{label}</Text>
-        <Text style={text.caption}>{Math.round(value * 100)}%</Text>
+        <Text style={text.caption}>{format(value)}</Text>
       </View>
       <View
         accessibilityRole="adjustable"
         accessibilityLabel={label}
-        accessibilityValue={{ min: 0, max: 100, now: Math.round(value * 100) }}
+        accessibilityValue={{ min, max, now: value, text: format(value) }}
         onLayout={(e) => setWidth(Math.max(1, e.nativeEvent.layout.width))}
         onStartShouldSetResponder={() => true}
         onMoveShouldSetResponder={() => true}
@@ -95,9 +109,9 @@ export function Slider({ label, value, onChange }: { label: string; value: numbe
         style={styles.sliderHit}
       >
         <View style={styles.sliderTrack} pointerEvents="none">
-          <View style={[styles.sliderFill, { width: `${value * 100}%` }]} />
+          <View style={[styles.sliderFill, { width: `${fraction * 100}%` }]} />
         </View>
-        <View pointerEvents="none" style={[styles.sliderKnob, { left: value * width - 11 }]} />
+        <View pointerEvents="none" style={[styles.sliderKnob, { left: fraction * width - 11 }]} />
       </View>
     </View>
   );
