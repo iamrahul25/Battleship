@@ -1,5 +1,5 @@
 import type { ConfigContext, ExpoConfig } from 'expo/config';
-import { type ConfigPlugin, withGradleProperties } from 'expo/config-plugins';
+import { type ConfigPlugin, withAppBuildGradle, withGradleProperties } from 'expo/config-plugins';
 
 const serverUrl = process.env.EXPO_PUBLIC_SERVER_URL ?? '';
 
@@ -19,7 +19,35 @@ const withCmakeObjectPathMax: ConfigPlugin = (config) =>
     return cfg;
   });
 
-export default ({ config }: ConfigContext): ExpoConfig => withCmakeObjectPathMax({
+// Release builds are signed with the Play Store upload key when MYAPP_UPLOAD_* is in Gradle's
+// environment (scripts/build-apk.js passes it from app/.env for `aab` builds only), and fall back
+// to the debug keystore otherwise so sideloaded APKs keep updating over earlier installs.
+const UPLOAD_SIGNING_CONFIG = `
+        release {
+            if (System.getenv('MYAPP_UPLOAD_STORE_FILE')) {
+                storeFile file(System.getenv('MYAPP_UPLOAD_STORE_FILE'))
+                storePassword System.getenv('MYAPP_UPLOAD_STORE_PASSWORD')
+                keyAlias System.getenv('MYAPP_UPLOAD_KEY_ALIAS')
+                keyPassword System.getenv('MYAPP_UPLOAD_KEY_PASSWORD')
+            }
+        }`;
+const withUploadSigning: ConfigPlugin = (config) =>
+  withAppBuildGradle(config, (cfg) => {
+    let gradle = cfg.modResults.contents;
+    if (gradle.includes('MYAPP_UPLOAD_STORE_FILE')) return cfg;
+    gradle = gradle.replace(
+      /(buildTypes\s*\{[\s\S]*?release\s*\{[\s\S]*?)signingConfig signingConfigs\.debug/,
+      "$1signingConfig System.getenv('MYAPP_UPLOAD_STORE_FILE') ? signingConfigs.release : signingConfigs.debug",
+    );
+    gradle = gradle.replace(/signingConfigs\s*\{/, (match) => match + UPLOAD_SIGNING_CONFIG);
+    if (!gradle.includes('signingConfigs.release')) {
+      throw new Error('withUploadSigning: could not find the release signingConfig in android/app/build.gradle');
+    }
+    cfg.modResults.contents = gradle;
+    return cfg;
+  });
+
+export default ({ config }: ConfigContext): ExpoConfig => withUploadSigning(withCmakeObjectPathMax({
   ...config,
   name: 'Battleship',
   slug: 'battleship',
@@ -72,4 +100,4 @@ export default ({ config }: ConfigContext): ExpoConfig => withCmakeObjectPathMax
   extra: {
     serverUrl,
   },
-});
+}));

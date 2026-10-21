@@ -111,7 +111,12 @@ function checkProject(ctx, report) {
       const { exp } = expoConfig.getConfig(rootDir, { skipSDKVersionRequirement: true });
       ctx.androidPackage = exp?.android?.package;
       if (ctx.androidPackage) {
-        report.pass(`app.config.ts (android.package: ${ctx.androidPackage}, version ${exp.version})`);
+        const versionCode = exp.android.versionCode ?? 1;
+        report.pass(`app.config.ts (android.package: ${ctx.androidPackage}, version ${exp.version}, versionCode ${versionCode})`);
+        if (ctx.target === 'aab') {
+          const [major, minor, patch] = String(exp.version).split('.').map(Number);
+          console.log(`       The AAB build bumps this to ${major}.${minor}.${patch + 1} (versionCode ${versionCode + 1}).`);
+        }
       } else {
         report.fail('app.config.ts has no android.package');
       }
@@ -151,7 +156,9 @@ function checkProject(ctx, report) {
     );
   }
 
-  // Release builds are signed with the debug keystore until an upload keystore is set up.
+  if (ctx.target === 'aab') return;
+
+  // APKs are signed with the debug keystore; only the aab target uses the upload key.
   if (fs.existsSync(path.join(appDir, 'debug.keystore'))) {
     report.pass('Signing: android/app/debug.keystore (fine for sideloading, not for the Play Store)');
   } else {
@@ -206,6 +213,48 @@ function checkToolchain(ctx, report) {
   }
 }
 
+const UPLOAD_KEY_VARS = [
+  'MYAPP_UPLOAD_STORE_FILE',
+  'MYAPP_UPLOAD_KEY_ALIAS',
+  'MYAPP_UPLOAD_STORE_PASSWORD',
+  'MYAPP_UPLOAD_KEY_PASSWORD',
+];
+
+function checkUploadKey(ctx, report) {
+  report.section('🔑 Play Store upload key');
+
+  const missing = UPLOAD_KEY_VARS.filter((name) => !process.env[name]);
+  if (missing.length) {
+    report.fail(`Not set: ${missing.join(', ')}`, 'Add them to app/.env (see app/.env.example).');
+    return;
+  }
+  report.pass('MYAPP_UPLOAD_* variables set');
+
+  const storeFile = process.env.MYAPP_UPLOAD_STORE_FILE;
+  if (!fs.existsSync(storeFile)) {
+    report.fail(`Keystore not found at ${storeFile}`, 'Fix MYAPP_UPLOAD_STORE_FILE in app/.env.');
+    return;
+  }
+
+  const alias = process.env.MYAPP_UPLOAD_KEY_ALIAS;
+  const result = run(jdkTool('keytool'), [
+    '-list', '-keystore', storeFile, '-alias', alias, '-storepass:env', 'MYAPP_UPLOAD_STORE_PASSWORD',
+  ]);
+  const output = outputOf(result);
+  if (result.error) {
+    report.warn('keytool not found, could not verify the keystore password and alias', `Install JDK ${MIN_JAVA_MAJOR}+ and set JAVA_HOME.`);
+  } else if (result.status !== 0) {
+    const reason = /password was incorrect|tampered/i.test(output)
+      ? 'MYAPP_UPLOAD_STORE_PASSWORD is wrong'
+      : /does not exist/i.test(output)
+        ? `alias "${alias}" is not in the keystore`
+        : output.split('\n')[0];
+    report.fail(`Upload keystore check failed: ${reason}`, `Keystore: ${storeFile}`);
+  } else {
+    report.pass(`Keystore ${storeFile} (alias ${alias})`);
+  }
+}
+
 function checkDependencies(ctx, report) {
   const { rootDir } = ctx;
   report.section('📦 Dependencies');
@@ -232,6 +281,7 @@ function runPreflight({ rootDir, target }) {
 
   checkProject(ctx, report);
   checkToolchain(ctx, report);
+  if (target === 'aab') checkUploadKey(ctx, report);
   checkDependencies(ctx, report);
 
   const { problems, warnings } = report;

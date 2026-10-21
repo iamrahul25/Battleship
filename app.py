@@ -117,7 +117,7 @@ def run_backend_and_frontend() -> None:
 
 
 def run_apk_script(*args: str) -> None:
-    """Run app/scripts/build-apk.js, which does the preflight checks and the Gradle build."""
+    """Run app/scripts/build-apk.js, which does the preflight checks and the Gradle build (APK or AAB)."""
     try:
         ensure_ready(APP_DIR)
     except subprocess.CalledProcessError as exc:
@@ -255,6 +255,8 @@ def main() -> None:
         print("2. Build Android APK (release/app-release.apk)")
         print("3. Run prechecks (APK preflight)")
         print("4. Run release/app-release.apk in emulator (adb install + launch)")
+        print("5. Build signed Play Store AAB (release/app-release.aab, bumps version)")
+        print("6. Run prechecks (AAB preflight + upload key)")
         print("0. Exit")
         try:
             choice = input("Select an option: ").strip()
@@ -270,6 +272,10 @@ def main() -> None:
             run_apk_script("preflight", "release")
         elif choice == "4":
             run_apk_in_emulator()
+        elif choice == "5":
+            run_apk_script("aab")
+        elif choice == "6":
+            run_apk_script("preflight", "aab")
         elif choice == "0":
             break
         else:

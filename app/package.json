@@ -14,6 +14,8 @@
     "generate-assets": "python scripts/generate_assets.py",
     "release-apk": "node scripts/build-apk.js release",
     "preflight-apk": "node scripts/build-apk.js preflight release",
+    "release-aab": "node scripts/build-apk.js aab",
+    "preflight-aab": "node scripts/build-apk.js preflight aab",
     "postinstall": "node scripts/copy-canvaskit.js"
   },
   "jest": {
