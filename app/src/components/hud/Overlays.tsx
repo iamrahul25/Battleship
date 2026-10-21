@@ -1,31 +1,40 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withDelay, withSequence, withSpring, withTiming } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 import { playSound } from '@/audio/SoundManager';
 import { colors, fonts } from '@/theme';
 
-/** "YOUR TURN" / "ENEMY TURN" banner that slides in and out. */
-export function TurnBanner({ bannerKey, mine }: { bannerKey: number; mine: boolean }) {
-  const x = useSharedValue(-1);
+/** Compact notice that slides in from the right edge, holds briefly, then slides back out and unmounts. */
+export function SideNotice({ text, color, hold = 1100 }: { text: string; color: string; hold?: number }) {
+  const [done, setDone] = useState(false);
+  const x = useSharedValue(1);
   useEffect(() => {
-    x.value = -1;
     x.value = withSequence(
-      withTiming(0, { duration: 260, easing: Easing.out(Easing.cubic) }),
-      withDelay(650, withTiming(1, { duration: 240, easing: Easing.in(Easing.cubic) })),
+      withTiming(0, { duration: 180, easing: Easing.out(Easing.cubic) }),
+      withDelay(
+        hold,
+        withTiming(1, { duration: 200, easing: Easing.in(Easing.cubic) }, (finished) => {
+          if (finished) scheduleOnRN(setDone, true);
+        }),
+      ),
     );
-  }, [bannerKey, x]);
-  const style = useAnimatedStyle(() => ({ transform: [{ translateX: x.value * 420 }], opacity: 1 - Math.abs(x.value) }));
+  }, [x, hold]);
+  const style = useAnimatedStyle(() => ({ transform: [{ translateX: x.value * 220 }], opacity: 1 - x.value }));
+  if (done) return null;
   return (
-    <View pointerEvents="none" style={styles.center}>
-      <Animated.View style={[styles.banner, { borderColor: mine ? colors.radarGreen : colors.signalRed }, style]}>
-        <Text style={[styles.bannerText, { color: mine ? colors.radarGreen : colors.signalRed }]}>{mine ? 'YOUR TURN' : 'ENEMY TURN'}</Text>
-      </Animated.View>
-    </View>
+    <Animated.View pointerEvents="none" style={[styles.notice, { borderLeftColor: color }, style]}>
+      <Text style={[styles.noticeText, { color }]}>{text}</Text>
+    </Animated.View>
   );
 }
 
-/** Rubber-stamp text ("SHIP SUNK!", "VICTORY"). */
+/** "YOUR TURN" / "ENEMY TURN" side notice. */
+export function TurnBanner({ mine }: { mine: boolean }) {
+  return <SideNotice text={mine ? 'YOUR TURN' : 'ENEMY TURN'} color={mine ? colors.radarGreen : colors.signalRed} hold={900} />;
+}
+
+/** Rubber-stamp text ("VICTORY", "DEFEAT"). */
 export function Stamp({ stampKey, text, color = colors.signalRed, hold = 900, size = 40 }: { stampKey: number; text: string; color?: string; hold?: number; size?: number }) {
   const s = useSharedValue(0);
   useEffect(() => {
@@ -98,14 +107,15 @@ const fill = { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 } as c
 
 const styles = StyleSheet.create({
   center: { ...fill, alignItems: 'center', justifyContent: 'center', zIndex: 50 },
-  banner: {
-    paddingHorizontal: 28,
-    paddingVertical: 10,
-    backgroundColor: 'rgba(6,14,26,0.9)',
-    borderTopWidth: 2,
-    borderBottomWidth: 2,
+  notice: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: 'rgba(6,14,26,0.92)',
+    borderLeftWidth: 3,
+    borderTopLeftRadius: 6,
+    borderBottomLeftRadius: 6,
   },
-  bannerText: { fontFamily: fonts.heading, fontSize: 30, letterSpacing: 4 },
+  noticeText: { fontFamily: fonts.heading, fontSize: 15, letterSpacing: 2 },
   stamp: { borderWidth: 4, borderRadius: 8, paddingHorizontal: 16, paddingVertical: 4, backgroundColor: 'rgba(6,14,26,0.55)' },
   stampText: { fontFamily: fonts.heading, letterSpacing: 3 },
   overlay: { ...fill, backgroundColor: colors.overlay, alignItems: 'center', justifyContent: 'center', zIndex: 80, gap: 24 },

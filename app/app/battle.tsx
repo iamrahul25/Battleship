@@ -20,7 +20,7 @@ import { EMOTES } from '@shared/protocol';
 import { playSound } from '@/audio/SoundManager';
 import { BattleGrid } from '@/components/grid/BattleGrid';
 import { FleetTracker } from '@/components/hud/FleetTracker';
-import { CoinFlip, EmoteBubble, emoteLabel, Stamp, TurnBanner } from '@/components/hud/Overlays';
+import { CoinFlip, EmoteBubble, emoteLabel, SideNotice, TurnBanner } from '@/components/hud/Overlays';
 import { PlayerCard } from '@/components/hud/PlayerCard';
 import { PowerUpBar } from '@/components/hud/PowerUpBar';
 import { TurnTimer } from '@/components/hud/TurnTimer';
@@ -218,8 +218,10 @@ export default function Battle() {
               </View>
             )}
           </View>
-          {s.banner && <TurnBanner key={s.banner.key} bannerKey={s.banner.key} mine={s.banner.mine} />}
-          {s.stamp && <Stamp key={s.stamp.key} stampKey={s.stamp.key} text={s.stamp.text} />}
+          <View pointerEvents="none" style={styles.notices}>
+            {s.banner && <TurnBanner key={s.banner.key} mine={s.banner.mine} />}
+            {s.stamp && <SideNotice key={s.stamp.key} text={s.stamp.text} color={colors.signalRed} />}
+          </View>
           {s.emote && <EmoteBubble key={s.emote.key} emoteKey={s.emote.key} id={s.emote.id} fromMe={s.emote.fromMe} />}
         </Animated.View>
 
@@ -327,6 +329,7 @@ const styles = StyleSheet.create({
   trackerRow: { marginBottom: 8 },
   board: { position: 'absolute', left: 0, top: 0, transformOrigin: 'top left' },
   sidePanel: { position: 'absolute', justifyContent: 'flex-start', gap: 6 },
+  notices: { position: 'absolute', top: 50, right: 0, alignItems: 'flex-end', gap: 6, zIndex: 50 },
   boardLabel: { fontFamily: fonts.bodyBold, fontSize: 11, color: colors.steel400, letterSpacing: 1.5 },
   statLine: { fontFamily: fonts.bodyBold, fontSize: 15, color: colors.steel200 },
   statusRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginVertical: 8 },
