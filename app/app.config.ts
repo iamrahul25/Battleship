@@ -1,5 +1,10 @@
 import type { ConfigContext, ExpoConfig } from 'expo/config';
-import { type ConfigPlugin, withAppBuildGradle, withGradleProperties } from 'expo/config-plugins';
+import {
+  type ConfigPlugin,
+  withAppBuildGradle,
+  withGradleProperties,
+  withProjectBuildGradle,
+} from 'expo/config-plugins';
 
 const serverUrl = process.env.EXPO_PUBLIC_SERVER_URL ?? '';
 
@@ -16,6 +21,41 @@ const withCmakeObjectPathMax: ConfigPlugin = (config) =>
       (item) => !(item.type === 'property' && item.key === CMAKE_OBJECT_PATH_MAX_KEY),
     );
     cfg.modResults.push({ type: 'property', key: CMAKE_OBJECT_PATH_MAX_KEY, value: CMAKE_OBJECT_PATH_MAX });
+    return cfg;
+  });
+
+// A single clang++ compiling react-native-skia (e.g. RNSkManager.cpp) peaks near 3 GB. By default
+// Ninja runs (cores + 2) compiles per ABI and Gradle builds several ABIs/libraries at once, which
+// exhausts RAM on a 16 GB machine and clang dies with "clang frontend command failed due to signal".
+// Run one CMake build task at a time and cap each Ninja to ~1 compile per 6 GB of RAM; override with
+// `-Pbattleship.nativeCompileJobs=N`.
+const NATIVE_COMPILE_JOBS_KEY = 'battleship.nativeCompileJobs';
+const NATIVE_BUILD_LIMIT_MARKER = '// battleship: limit native build parallelism';
+const NATIVE_BUILD_LIMIT_GRADLE = `
+${NATIVE_BUILD_LIMIT_MARKER}
+abstract class NativeBuildLimiter implements org.gradle.api.services.BuildService<org.gradle.api.services.BuildServiceParameters.None> {}
+def nativeBuildLimiter = gradle.sharedServices.registerIfAbsent('nativeBuildLimiter', NativeBuildLimiter) {
+  it.maxParallelUsages.set(1)
+}
+def totalRamGb = java.lang.management.ManagementFactory.operatingSystemMXBean.totalMemorySize / (1024 ** 3)
+def defaultNativeCompileJobs = Math.max(1, Math.min(Runtime.runtime.availableProcessors(), (int) (totalRamGb / 6)))
+def nativeCompileJobs = (findProperty('${NATIVE_COMPILE_JOBS_KEY}') ?: defaultNativeCompileJobs).toString().toInteger()
+logger.quiet("[battleship] Native builds: one CMake task at a time, \${nativeCompileJobs} parallel compile(s) each")
+allprojects { project ->
+  project.pluginManager.withPlugin('com.android.base') {
+    project.android.defaultConfig.externalNativeBuild.cmake.arguments.addAll([
+      "-DCMAKE_JOB_POOLS=compile=\${nativeCompileJobs}".toString(),
+      '-DCMAKE_JOB_POOL_COMPILE=compile',
+    ])
+    project.tasks.matching { it.name.startsWith('buildCMake') }.configureEach { usesService(nativeBuildLimiter) }
+  }
+}
+`;
+const withNativeBuildLimit: ConfigPlugin = (config) =>
+  withProjectBuildGradle(config, (cfg) => {
+    if (!cfg.modResults.contents.includes(NATIVE_BUILD_LIMIT_MARKER)) {
+      cfg.modResults.contents += NATIVE_BUILD_LIMIT_GRADLE;
+    }
     return cfg;
   });
 
@@ -47,7 +87,7 @@ const withUploadSigning: ConfigPlugin = (config) =>
     return cfg;
   });
 
-export default ({ config }: ConfigContext): ExpoConfig => withUploadSigning(withCmakeObjectPathMax({
+export default ({ config }: ConfigContext): ExpoConfig => withNativeBuildLimit(withUploadSigning(withCmakeObjectPathMax({
   ...config,
   name: 'Battleship',
   slug: 'battleship',
@@ -100,4 +140,4 @@ export default ({ config }: ConfigContext): ExpoConfig => withUploadSigning(with
   extra: {
     serverUrl,
   },
-}));
+})));
