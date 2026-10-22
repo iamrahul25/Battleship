@@ -98,11 +98,11 @@ export default ({ config }: ConfigContext): ExpoConfig => withNativeBuildLimit(w
   backgroundColor: '#0A1628',
   ios: {
     supportsTablet: false,
-    bundleIdentifier: 'com.battleship.game',
+    bundleIdentifier: 'com.nightwise.battleship',
   },
   android: {
     ...config.android,
-    package: 'com.battleship.game',
+    package: 'com.nightwise.battleship',
     adaptiveIcon: {
       backgroundColor: '#0A1628',
       foregroundImage: './assets/images/adaptive-icon.png',
