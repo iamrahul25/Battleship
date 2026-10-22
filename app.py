@@ -3,6 +3,7 @@
 Usage: python app.py
 """
 
+import json
 import os
 import re
 import shutil
@@ -16,6 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 SERVER_DIR = ROOT / "server"
 APP_DIR = ROOT / "app"
+APP_JSON = APP_DIR / "app.json"
 RELEASE_DIR = ROOT / "release"
 IS_WINDOWS = os.name == "nt"
 NPM = "npm.cmd" if IS_WINDOWS else "npm"
@@ -116,20 +118,56 @@ def run_backend_and_frontend() -> None:
         print("All processes stopped.\n")
 
 
-def run_apk_script(*args: str) -> None:
+def run_apk_script(*args: str) -> bool:
     """Run app/scripts/build-apk.js, which does the preflight checks and the Gradle build (APK or AAB)."""
     try:
         ensure_ready(APP_DIR)
     except subprocess.CalledProcessError as exc:
         print(f"[setup] npm install failed (exit code {exc.returncode}).")
-        return
+        return False
 
     try:
         code = subprocess.run(["node", "scripts/build-apk.js", *args], cwd=APP_DIR).returncode
     except KeyboardInterrupt:
         print("\nCancelled.\n")
-        return
+        return False
     print("Done.\n" if code == 0 else f"Failed (exit code {code}).\n")
+    return code == 0
+
+
+def bump_version() -> str:
+    """Bump expo.version (patch) and expo.android.versionCode in app/app.json. Returns the original text."""
+    original = APP_JSON.read_text(encoding="utf-8")
+    config = json.loads(original)
+    expo = config["expo"]
+    android = expo.setdefault("android", {})
+
+    old_version = expo.get("version", "1.0.0")
+    major, minor, patch = (int(part) for part in old_version.split("."))
+    new_version = f"{major}.{minor}.{patch + 1}"
+    old_code = int(android.get("versionCode", 1))
+    new_code = old_code + 1
+
+    expo["version"] = new_version
+    android["versionCode"] = new_code
+    APP_JSON.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+    print(f"Bumped app.json: versionCode {old_code} -> {new_code}, version {old_version} -> {new_version}\n")
+    return original
+
+
+def build_aab() -> None:
+    if not run_apk_script("preflight", "aab"):
+        return
+
+    try:
+        original = bump_version()
+    except (OSError, KeyError, ValueError) as exc:
+        print(f"Could not bump the version in {APP_JSON.relative_to(ROOT)}: {exc}\n")
+        return
+
+    if not run_apk_script("aab", "--skip-preflight"):
+        APP_JSON.write_text(original, encoding="utf-8")
+        print(f"Restored {APP_JSON.relative_to(ROOT)} to its previous version because the build failed.\n")
 
 
 def sdk_tool(subdir: str, name: str) -> str | None:
@@ -273,7 +311,7 @@ def main() -> None:
         elif choice == "4":
             run_apk_in_emulator()
         elif choice == "5":
-            run_apk_script("aab")
+            build_aab()
         elif choice == "6":
             run_apk_script("preflight", "aab")
         elif choice == "0":

@@ -91,7 +91,6 @@ export default ({ config }: ConfigContext): ExpoConfig => withNativeBuildLimit(w
   ...config,
   name: 'Battleship',
   slug: 'battleship',
-  version: '1.0.0',
   scheme: 'battleship',
   orientation: 'portrait',
   icon: './assets/images/icon.png',
@@ -102,8 +101,8 @@ export default ({ config }: ConfigContext): ExpoConfig => withNativeBuildLimit(w
     bundleIdentifier: 'com.battleship.game',
   },
   android: {
+    ...config.android,
     package: 'com.battleship.game',
-    versionCode: 1,
     adaptiveIcon: {
       backgroundColor: '#0A1628',
       foregroundImage: './assets/images/adaptive-icon.png',

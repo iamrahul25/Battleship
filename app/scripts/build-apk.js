@@ -7,8 +7,8 @@ const { runPreflight } = require('./preflight');
 // Usage:
 //   node scripts/build-apk.js [release|debug|aab] [--skip-preflight]
 //   node scripts/build-apk.js preflight [release|debug|aab]
-// `aab` builds a Play Store bundle signed with the MYAPP_UPLOAD_* key from app/.env and bumps the
-// app version (patch) and android.versionCode in app.config.ts.
+// `aab` builds a Play Store bundle signed with the MYAPP_UPLOAD_* key from app/.env. The version and
+// android.versionCode come from app.json; `python app.py` (option 5) bumps them before building.
 const RELEASE_SERVER_URL = 'wss://battleship-iamrahul25.onrender.com';
 
 const args = process.argv.slice(2);
@@ -28,7 +28,6 @@ const rootDir = path.resolve(__dirname, '..');
 const repoRoot = path.resolve(rootDir, '..');
 const androidDir = path.join(rootDir, 'android');
 const releaseDir = path.join(repoRoot, 'release');
-const appConfigPath = path.join(rootDir, 'app.config.ts');
 const outputPath = isBundle
   ? path.join(androidDir, 'app', 'build', 'outputs', 'bundle', 'release', artifactFilename)
   : path.join(androidDir, 'app', 'build', 'outputs', 'apk', target, artifactFilename);
@@ -50,32 +49,6 @@ function loadUploadKeyEnv() {
   }
 }
 
-/** Bumps the patch version and android.versionCode in app.config.ts. Returns a function that undoes it. */
-function bumpVersion() {
-  const original = fs.readFileSync(appConfigPath, 'utf8');
-  const versionMatch = original.match(/^(\s*version:\s*['"])(\d+)\.(\d+)\.(\d+)(['"])/m);
-  const codeMatch = original.match(/^(\s*versionCode:\s*)(\d+)/m);
-  if (!versionMatch || !codeMatch) {
-    throw new Error('Could not find version / android.versionCode in app.config.ts');
-  }
-  const [, , major, minor, patch] = versionMatch;
-  const oldVersion = `${major}.${minor}.${patch}`;
-  const newVersion = `${major}.${minor}.${Number(patch) + 1}`;
-  const oldCode = Number(codeMatch[2]);
-  const newCode = oldCode + 1;
-
-  const updated = original
-    .replace(versionMatch[0], `${versionMatch[1]}${newVersion}${versionMatch[5]}`)
-    .replace(codeMatch[0], `${codeMatch[1]}${newCode}`);
-  fs.writeFileSync(appConfigPath, updated);
-  console.log(`\n🔼 Version bumped: ${oldVersion} (${oldCode}) → ${newVersion} (${newCode})`);
-
-  return () => {
-    fs.writeFileSync(appConfigPath, original);
-    console.log(`↩️  Version restored to ${oldVersion} (${oldCode}) because the build failed.`);
-  };
-}
-
 if (isBundle) {
   loadUploadKeyEnv();
 }
@@ -93,7 +66,6 @@ if (checkOnly) {
 }
 
 const env = { ...process.env, EXPO_PUBLIC_SERVER_URL: RELEASE_SERVER_URL };
-const restoreVersion = isBundle ? bumpVersion() : null;
 
 try {
   console.log(`🌐 Server URL baked into the ${artifactLabel}: ${RELEASE_SERVER_URL}`);
@@ -104,7 +76,7 @@ try {
     fs.mkdirSync(releaseDir, { recursive: true });
   }
 
-  // Syncs app.config.ts (version, versionCode, plugins) into android/.
+  // Syncs app.json + app.config.ts (version, versionCode, plugins) into android/.
   console.log('\n🔄 Running expo prebuild (android)...\n');
   execSync(`${npxCmd} expo prebuild --platform android --no-install`, { cwd: rootDir, stdio: 'inherit', env });
 
@@ -130,6 +102,5 @@ try {
     console.log('📦 Signed with the upload key. Upload release/app-release.aab in Play Console.\n');
   }
 } catch (error) {
-  restoreVersion?.();
   process.exit(error.status || 1);
 }
