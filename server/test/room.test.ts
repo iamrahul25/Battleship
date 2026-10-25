@@ -309,6 +309,28 @@ describe('battle', () => {
     expect(server.state.phase).toBe('placement');
   });
 
+  it('private room rematch restarts placement and keeps both players connected', async () => {
+    const host = record(await colyseus.sdk.create(ROOM_NAME, join('Alice', { private: true })));
+    const server = colyseus.getRoomById<BattleRoom>(host.room.roomId);
+    const res = await colyseus.http.get(`/rooms/code/${server.state.code}`);
+    const guest = record(await colyseus.sdk.joinById(res.data.roomId, join('Bobby')));
+    await host.waitFor('sync', (p) => p.view.phase === 'placement');
+    await guest.waitFor('sync', (p) => p.view.phase === 'placement');
+
+    host.room.send('forfeit', {});
+    await host.waitFor('game_over');
+    await guest.waitFor('game_over');
+    host.room.send('rematch', {});
+    await guest.waitFor('rematch_status', (p) => p.requested.length === 1);
+    guest.room.send('rematch', {});
+    await host.waitFor('sync', (p) => p.view.phase === 'placement');
+    await guest.waitFor('sync', (p) => p.view.phase === 'placement');
+    await sleep(300);
+    expect(server.state.phase).toBe('placement');
+    expect([...server.state.players.values()].every((p) => p.connected)).toBe(true);
+    expect(server.clients.length).toBe(2);
+  });
+
   it('a player leaving mid-battle loses', async () => {
     const { first, second } = await toBattle();
     await first.room.leave(true);

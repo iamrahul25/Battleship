@@ -53,12 +53,9 @@ export default function Result() {
     return () => clearTimeout(t);
   }, [result]);
 
-  // Rematch accepted: a new placement phase begins.
-  useEffect(() => {
-    if (view?.phase === 'placement') router.replace('/placement');
-  }, [view?.phase]);
-
-  if (!result || !controller) return <Redirect href="/home" />;
+  if (!controller) return <Redirect href="/home" />;
+  // An accepted rematch clears `result` as the new placement phase begins; going home would leave the room.
+  if (!result) return <Redirect href={view?.phase === 'placement' ? '/placement' : '/home'} />;
 
   const { summary } = result;
   const online = controller.kind === 'online';
