@@ -4,6 +4,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { GestureDetector, useCompetingGestures, usePanGesture, useTapGesture } from 'react-native-gesture-handler';
 import { Easing, useDerivedValue, useSharedValue, withRepeat, withTiming } from 'react-native-reanimated';
 import { type Coord, inBounds, isTargetable, parseKey, type PlacedShip, type SonarResult } from '@shared/engine';
+import { useImageGraphics } from '@/art/spriteSet';
 import type { ActiveFx } from '@/stores/match';
 import { colors, fonts } from '@/theme';
 import { type BoardLike, boardPicture } from './boardPicture';
@@ -99,7 +100,9 @@ function BattleGridImpl({
   const { cell: s, gutter, gridW, gridH } = gridGeometry(size, board.width, board.height, showLabels);
   const [hoverCell, setHover] = useState<Coord | null>(null);
 
-  const picture = useMemo(() => boardPicture(board, s, { revealed }), [board, s, revealed]);
+  const imageGraphics = useImageGraphics();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const picture = useMemo(() => boardPicture(board, s, { revealed }), [board, s, revealed, imageGraphics]);
   const fireCells = useMemo(
     () =>
       Object.keys(board.shots)

@@ -4,10 +4,11 @@ import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { loadShipSprites } from '@/art/shipSprites';
 import { SoundManager } from '@/audio/SoundManager';
 import { ToastHost } from '@/components/ui/ToastHost';
 import { useHydrated } from '@/stores/hydration';
@@ -23,10 +24,12 @@ export default function RootLayout() {
     Rajdhani_700Bold,
   });
   const hydrated = useHydrated();
-  const ready = (fontsLoaded || !!fontError) && hydrated;
+  const [spritesLoaded, setSpritesLoaded] = useState(false);
+  const ready = (fontsLoaded || !!fontError) && hydrated && spritesLoaded;
 
   useEffect(() => {
     SoundManager.init();
+    loadShipSprites().finally(() => setSpritesLoaded(true));
   }, []);
 
   useEffect(() => {

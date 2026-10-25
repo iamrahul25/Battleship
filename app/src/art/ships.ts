@@ -1,7 +1,9 @@
-import { PathOp, type SkCanvas, Skia, type SkPath } from '@shopify/react-native-skia';
+import { FilterMode, MipmapMode, PathOp, type SkCanvas, Skia, type SkImage, type SkPath, type SkRect } from '@shopify/react-native-skia';
+import { PixelRatio } from 'react-native';
 import type { Coord, Rotation } from '@shared/engine';
 import { colors } from '@/theme';
 import { linear, paint, poly, radial, rect, rrect } from './draw';
+import { shipSprite } from './shipSprites';
 
 export interface ShipDrawInput {
   defId: string;
@@ -16,6 +18,21 @@ export interface ShipDrawOptions {
   tint?: 'valid' | 'invalid' | null;
   /** Greyed silhouette (fleet tracker). */
   silhouette?: boolean;
+}
+
+const GREYSCALE = [0.3, 0.59, 0.11, 0, 0, 0.3, 0.59, 0.11, 0, 0, 0.3, 0.59, 0.11, 0, 0, 0, 0, 0, 1, 0];
+
+/** Device pixels per point that ship art ends up rasterized at (matches SkiaIcon's scale). */
+const RENDER_SCALE = Math.min(3, Math.max(2, PixelRatio.get()));
+
+/** Sprite stretched to fill `dst`: Catmull-Rom when enlarged to stay crisp, mipmapped when shrunk to avoid aliasing. */
+function drawSprite(c: SkCanvas, img: SkImage, dst: SkRect, silhouette: boolean) {
+  const p = Skia.Paint();
+  p.setAntiAlias(true);
+  if (silhouette) p.setColorFilter(Skia.ColorFilter.MakeMatrix(GREYSCALE));
+  const src = rect(0, 0, img.width(), img.height());
+  if (dst.width * RENDER_SCALE >= img.width()) c.drawImageRectCubic(img, src, dst, 0, 0.5, p);
+  else c.drawImageRectOptions(img, src, dst, FilterMode.Linear, MipmapMode.Linear, p);
 }
 
 function turret(c: SkCanvas, cx: number, cy: number, r: number, facing: 1 | -1, silhouette: boolean) {
@@ -183,10 +200,15 @@ function drawShapedHull(c: SkCanvas, cells: Coord[], s: number, ox: number, oy: 
 export function drawShip(c: SkCanvas, ship: ShipDrawInput, s: number, ox: number, oy: number, opts: ShipDrawOptions = {}) {
   if (!ship.cells.length) return;
   const b = bounds(ship.cells);
+  const cols = b.maxX - b.minX + 1;
+  const rows = b.maxY - b.minY + 1;
+  const straight = isStraight(ship.cells);
+  const sprite = shipSprite(ship.defId);
+  const silhouette = !!opts.silhouette;
 
-  if (isStraight(ship.cells)) {
-    const horizontal = b.maxX - b.minX >= b.maxY - b.minY;
-    const len = horizontal ? b.maxX - b.minX + 1 : b.maxY - b.minY + 1;
+  if (straight) {
+    const horizontal = cols >= rows;
+    const len = Math.max(cols, rows);
     const flipped = ship.rotation === 180 || ship.rotation === 270;
     c.save();
     c.translate(ox + b.minX * s, oy + b.minY * s);
@@ -198,10 +220,22 @@ export function drawShip(c: SkCanvas, ship: ShipDrawInput, s: number, ox: number
       c.translate(len * s, s);
       c.scale(-1, -1);
     }
-    drawHull(c, ship.defId, len, s, !!opts.silhouette);
+    if (sprite) drawSprite(c, sprite, rect(s * 0.04, s * 0.1, len * s - s * 0.08, s * 0.8), silhouette);
+    else drawHull(c, ship.defId, len, s, silhouette);
+    c.restore();
+  } else if (sprite) {
+    // Sprites are drawn at rotation 0; shapeCells rotates clockwise, matching canvas rotation.
+    const w = cols * s;
+    const h = rows * s;
+    const [w0, h0] = ship.rotation % 180 === 0 ? [w, h] : [h, w];
+    const inset = s * 0.05;
+    c.save();
+    c.translate(ox + b.minX * s + w / 2, oy + b.minY * s + h / 2);
+    c.rotate(ship.rotation, 0, 0);
+    drawSprite(c, sprite, rect(-w0 / 2 + inset, -h0 / 2 + inset, w0 - inset * 2, h0 - inset * 2), silhouette);
     c.restore();
   } else {
-    drawShapedHull(c, ship.cells, s, ox, oy, !!opts.silhouette);
+    drawShapedHull(c, ship.cells, s, ox, oy, silhouette);
   }
 
   for (const d of opts.damaged ?? []) {

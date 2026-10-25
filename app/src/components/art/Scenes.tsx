@@ -4,6 +4,7 @@ import { StyleSheet, View } from 'react-native';
 import { Easing, useDerivedValue, useSharedValue, withTiming } from 'react-native-reanimated';
 import { paint, record } from '@/art/draw';
 import { drawShipIcon } from '@/art/ships';
+import { useImageGraphics } from '@/art/spriteSet';
 import { colors } from '@/theme';
 import { Water } from '../grid/Water';
 
@@ -17,12 +18,14 @@ export function SeaBackground({ width, height, animate = true, ship = true }: { 
 
   const cell = Math.min(46, width / 9);
   const len = 4;
+  const imageGraphics = useImageGraphics();
   const shipPic = useMemo(
     () =>
       record(len * cell, cell, (c) => {
         drawShipIcon(c, 'battleship', len, cell);
       }),
-    [cell],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [cell, imageGraphics],
   );
   const wake = useMemo(
     () =>

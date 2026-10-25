@@ -55,6 +55,15 @@ export default function Settings() {
         />
       </Panel>
 
+      <Panel title="Graphics" style={styles.panel}>
+        <Toggle
+          label="Image graphics"
+          hint="On: detailed pictures for ships. Off: simple drawn style."
+          value={s.imageGraphics}
+          onChange={(v) => s.set({ imageGraphics: v })}
+        />
+      </Panel>
+
       <Panel title="Accessibility" style={styles.panel}>
         <Toggle label="Reduced motion" hint="Disables screen shake, particles and water animation" value={s.reducedMotion} onChange={(v) => s.set({ reducedMotion: v })} />
       </Panel>
@@ -68,8 +77,8 @@ export default function Settings() {
         <Text style={styles.about}>Server: {getServerUrl()}</Text>
         {storageNamespace ? <Text style={styles.about}>Dev profile: {storageNamespace}</Text> : null}
         <Text style={[styles.about, { marginTop: 8 }]}>
-          Fonts: Black Ops One and Rajdhani (SIL Open Font License). Icons: Ionicons and Material Community Icons (MIT). Ship art, avatars, medals and sounds are
-          generated procedurally by this project.
+          Fonts: Black Ops One and Rajdhani (SIL Open Font License). Icons: Ionicons and Material Community Icons (MIT). Avatars, medals, sounds and the simple ship
+          graphics are generated procedurally by this project.
         </Text>
         <Text style={[styles.link]} onPress={() => Linking.openURL('https://openfontlicense.org')}>
           Open Font License

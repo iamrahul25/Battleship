@@ -1,6 +1,8 @@
 import { type SkCanvas, Skia } from '@shopify/react-native-skia';
 import { useMemo } from 'react';
 import { Image, type ImageStyle, PixelRatio, type StyleProp } from 'react-native';
+import { useSettingsStore } from '@/stores/settings';
+import { useImageGraphics } from './spriteSet';
 
 const cache = new Map<string, string>();
 
@@ -10,7 +12,8 @@ const cache = new Map<string, string>();
  */
 export function renderIcon(cacheKey: string, width: number, height: number, draw: (c: SkCanvas) => void): string | null {
   const scale = Math.min(3, Math.max(2, PixelRatio.get()));
-  const k = `${cacheKey}@${width}x${height}@${scale}`;
+  const style = useSettingsStore.getState().imageGraphics ? 'img' : 'vec';
+  const k = `${cacheKey}@${width}x${height}@${scale}@${style}`;
   const hit = cache.get(k);
   if (hit) return hit;
   try {
@@ -37,9 +40,10 @@ interface Props {
 }
 
 export function SkiaIcon({ cacheKey, width, height = width, draw, style }: Props) {
+  const imageGraphics = useImageGraphics();
   // `draw` is keyed by cacheKey; callers pass a stable key per visual variant.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const uri = useMemo(() => renderIcon(cacheKey, width, height, draw), [cacheKey, width, height]);
+  const uri = useMemo(() => renderIcon(cacheKey, width, height, draw), [cacheKey, width, height, imageGraphics]);
   if (!uri) return null;
   return <Image source={{ uri }} style={[{ width, height }, style]} />;
 }

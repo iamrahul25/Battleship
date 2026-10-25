@@ -17,6 +17,8 @@ export interface SettingsState {
   /** Last obstacle density chosen for bot games. */
   obstacles: ObstacleLevel;
   reducedMotion: boolean;
+  /** Picture sprites for ships; off falls back to the simple drawn art. */
+  imageGraphics: boolean;
   set: (patch: Partial<Omit<SettingsState, 'set' | 'reset'>>) => void;
   reset: () => void;
 }
@@ -32,6 +34,7 @@ export const DEFAULT_SETTINGS = {
   boardSize: DEFAULT_BOARD_SIZE,
   obstacles: 'few' as ObstacleLevel,
   reducedMotion: false,
+  imageGraphics: true,
 };
 
 export const useSettingsStore = create<SettingsState>()(

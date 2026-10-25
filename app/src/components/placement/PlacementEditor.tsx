@@ -33,6 +33,7 @@ import {
 import { drawObstacleIcon } from '@/art/obstacles';
 import { drawShipShape, shipIconSize } from '@/art/ships';
 import { SkiaIcon } from '@/art/SkiaIcon';
+import { useImageGraphics } from '@/art/spriteSet';
 import { playSound } from '@/audio/SoundManager';
 import { haptic } from '@/platform/haptics';
 import { colors, fonts, text } from '@/theme';
@@ -145,9 +146,11 @@ export function PlacementEditor({
     [drag, hover],
   );
   const hiddenShipUid = drag?.kind === 'ship' ? drag.uid : null;
+  const imageGraphics = useImageGraphics();
   const picture = useMemo(
     () => boardPicture(shownBoard, s, { ghost, mineGhost, hiddenShipUid }),
-    [shownBoard, s, ghost, mineGhost, hiddenShipUid],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [shownBoard, s, ghost, mineGhost, hiddenShipUid, imageGraphics],
   );
 
   const doShake = useCallback(() => {
