@@ -44,7 +44,7 @@ export const WEAPONS: Record<string, WeaponDef> = {
     name: 'Barrage',
     short: 'BARRAGE',
     description: '4 shots land on random unrevealed enemy cells.',
-    cost: 50,
+    cost: 70,
     maxUses: 2,
     pattern: [],
     kind: 'random',
@@ -56,7 +56,7 @@ export const WEAPONS: Record<string, WeaponDef> = {
     name: 'Sonar Scan',
     short: 'SONAR',
     description: 'Reveals how many ship cells hide in a 3×3 area.',
-    cost: 60,
+    cost: 80,
     maxUses: null,
     pattern: [-1, 0, 1].flatMap((y) => [-1, 0, 1].map((x) => ({ x, y }))),
     kind: 'reveal',
@@ -67,7 +67,7 @@ export const WEAPONS: Record<string, WeaponDef> = {
     name: 'Torpedo',
     short: 'TORPEDO',
     description: 'Runs along a row or column from the edge and strikes the first ship in its path.',
-    cost: 70,
+    cost: 50,
     maxUses: 2,
     pattern: [],
     kind: 'torpedo',
@@ -78,7 +78,7 @@ export const WEAPONS: Record<string, WeaponDef> = {
     name: 'Airstrike',
     short: 'AIRSTRIKE',
     description: 'Hits a straight line of 4 cells, horizontal or vertical.',
-    cost: 80,
+    cost: 60,
     maxUses: 2,
     pattern: [-1, 0, 1, 2].map((x) => ({ x, y: 0 })),
     kind: 'area',
@@ -105,7 +105,7 @@ export const WEAPONS: Record<string, WeaponDef> = {
 };
 
 /** Power-ups in button order (cheapest first). */
-export const POWER_UP_IDS = ['barrage', 'sonar', 'torpedo', 'airstrike', 'artillery'] as const;
+export const POWER_UP_IDS = ['torpedo', 'airstrike', 'barrage', 'sonar', 'artillery'] as const;
 
 export function getWeapon(id: string): WeaponDef | undefined {
   return WEAPONS[id];

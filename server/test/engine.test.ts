@@ -387,7 +387,7 @@ describe('game reducer', () => {
 
   it('sonar reveals count and ends turn', () => {
     let s = battleGame();
-    s = { ...s, players: [{ ...s.players[0], charge: 60 }, s.players[1]] };
+    s = { ...s, players: [{ ...s.players[0], charge: 80 }, s.players[1]] };
     const r = must(applyAction(s, { type: 'USE_WEAPON', player: 0, weaponId: 'sonar', target: { x: 1, y: 1 } }));
     const ev = r.state.log[r.state.log.length - 1];
     expect(ev.sonar?.shipCellsFound).toBe(6); // row 0 (3 cells) + row 2 (3 cells)

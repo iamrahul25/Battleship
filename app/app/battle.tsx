@@ -19,6 +19,7 @@ import {
 import { EMOTES } from '@shared/protocol';
 import { playSound } from '@/audio/SoundManager';
 import { BattleGrid } from '@/components/grid/BattleGrid';
+import { RulesSheet } from '@/components/help/RulesSheet';
 import { FleetTracker } from '@/components/hud/FleetTracker';
 import { CoinFlip, EmoteBubble, emoteLabel, SideNotice, TurnBanner } from '@/components/hud/Overlays';
 import { PlayerCard } from '@/components/hud/PlayerCard';
@@ -45,6 +46,7 @@ export default function Battle() {
   const insets = useSafeAreaInsets();
   const [menu, setMenu] = useState(false);
   const [emotes, setEmotes] = useState(false);
+  const [help, setHelp] = useState(false);
   const now = useNow(!!meta?.opponentReconnectDeadline, 1000);
 
   const online = controller?.kind === 'online';
@@ -106,7 +108,7 @@ export default function Battle() {
     if (!(controller instanceof LocalGameController)) return;
     const sub = AppState.addEventListener('change', (st) => {
       if (st === 'active') {
-        if (!menu) controller.resume();
+        if (!menu && !help) controller.resume();
       } else {
         controller.pause();
         const saved = controller.serialize();
@@ -114,7 +116,7 @@ export default function Battle() {
       }
     });
     return () => sub.remove();
-  }, [controller, menu]);
+  }, [controller, menu, help]);
 
   const openMenu = useCallback(() => {
     playSound('click');
@@ -122,6 +124,16 @@ export default function Battle() {
     setMenu(true);
   }, [controller]);
   useBackGuard(openMenu);
+
+  const openHelp = () => {
+    playSound('click');
+    controller?.pause();
+    setHelp(true);
+  };
+  const closeHelp = () => {
+    setHelp(false);
+    controller?.resume();
+  };
 
   const weapon = getWeapon(s.selectedWeapon);
   const [orientation, setOrientation] = useState<Orientation>('H');
@@ -155,7 +167,7 @@ export default function Battle() {
     );
   }
 
-  const canFire = myTurn && !fx && !s.awaiting && s.queue.length === 0 && !menu && !s.coinFlip;
+  const canFire = myTurn && !fx && !s.awaiting && s.queue.length === 0 && !menu && !help && !s.coinFlip;
   const turnTotal = view.rules.turnTimeMs ?? ONLINE_TURN_TIME_MS;
   const showTimer = online || view.rules.turnTimeMs !== null;
 
@@ -249,6 +261,9 @@ export default function Battle() {
         <View style={styles.bottomRow}>
           <PlayerCard info={meta.me} shipsRemaining={view.me.shipsRemaining} active={myTurn} compact />
           <View style={styles.bottomActions}>
+            <Pressable accessibilityRole="button" accessibilityLabel="Rules and info" onPress={openHelp} style={styles.roundBtn} testID="rules">
+              <Ionicons name="help" size={22} color={colors.steel100} />
+            </Pressable>
             {online && (
               <Pressable accessibilityLabel="Emotes" onPress={() => setEmotes((v) => !v)} style={styles.roundBtn}>
                 <Ionicons name="chatbubble-ellipses" size={20} color={colors.steel100} />
@@ -282,6 +297,13 @@ export default function Battle() {
       {s.coinFlip && (
         <CoinFlip meFirst={s.coinFlip.meFirst} opponentName={meta.opponent?.name ?? 'Enemy'} onDone={s.dismissCoinFlip} />
       )}
+
+      <RulesSheet
+        visible={help}
+        match={{ rules: view.rules, turnSeconds: showTimer ? Math.round(turnTotal / 1000) : null }}
+        note={online ? 'The turn timer keeps running in online matches.' : 'Game paused while you read.'}
+        onClose={closeHelp}
+      />
 
       <ConfirmDialog
         visible={menu}

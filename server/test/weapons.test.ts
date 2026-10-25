@@ -33,8 +33,8 @@ const lastShot = (s: GameState): ShotEvent => s.log[s.log.length - 1];
 const coords = (cs: { x: number; y: number }[]) => cs.map(key);
 
 describe('airstrike', () => {
-  it('hits a horizontal line of 4, costs 80 and ends the turn', () => {
-    const s = withCharge(battleGame(), 80);
+  it('hits a horizontal line of 4, costs 60 and ends the turn', () => {
+    const s = withCharge(battleGame(), 60);
     const r = must(applyAction(s, { type: 'USE_WEAPON', player: 0, weaponId: 'airstrike', target: { x: 2, y: 0 }, orientation: 'H' }));
     const ev = lastShot(r.state);
     expect(coords(ev.results.map((x) => x.coord))).toEqual(['1,0', '2,0', '3,0', '4,0']);
@@ -62,7 +62,7 @@ describe('airstrike', () => {
 
 describe('barrage', () => {
   it('fires 4 shots at distinct unrevealed cells', () => {
-    const s = withCharge(battleGame(), 50);
+    const s = withCharge(battleGame(), 70);
     const r = must(applyAction(s, { type: 'USE_WEAPON', player: 0, weaponId: 'barrage', target: { x: 0, y: 0 } }));
     const ev = lastShot(r.state);
     expect(ev.results).toHaveLength(4);
@@ -124,7 +124,7 @@ describe('torpedo', () => {
     expect(coords(ev.knownEmpty!)).toEqual(['9,0', '8,0', '7,0', '6,0', '5,0']);
     expect(coords(ev.path!)).toEqual(['9,0', '8,0', '7,0', '6,0', '5,0', '4,0']);
     expect(r.state.players[1].board.shots['6,0']).toBe('knownEmpty');
-    expect(r.state.players[0].charge).toBe(30);
+    expect(r.state.players[0].charge).toBe(100 - WEAPONS.torpedo.cost);
     expect(r.state.activePlayer).toBe(1);
   });
 
