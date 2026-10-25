@@ -4,6 +4,7 @@ import type { Application, NextFunction, Request, Response } from 'express';
 import { config } from './config';
 import { BattleRoom } from './rooms/BattleRoom';
 import { findRoomByCode } from './services/roomCodes';
+import { parseGameMode } from './shared/engine';
 import { PROTOCOL_VERSION, ROOM_NAME, roomCodeSchema } from './shared/protocol';
 
 export interface CreateServerOptions {
@@ -53,6 +54,9 @@ export function createGameServer(options: CreateServerOptions = {}): Server {
     gracefullyShutdown: options.gracefullyShutdown ?? true,
     express: (app) => configureRoutes(app, options.withMonitor ?? false),
   });
-  server.define(ROOM_NAME, BattleRoom).filterBy(['mode']);
+  const battle = server.define(ROOM_NAME, BattleRoom).filterBy(['mode']);
+  // Matchmaking filters on the raw client option; normalise it so older app builds share Quick Match queues.
+  const filterOptions = battle.getFilterOptions.bind(battle);
+  battle.getFilterOptions = (opts: Record<string, unknown> = {}) => ({ ...filterOptions(opts), mode: parseGameMode(opts.mode) });
   return server;
 }

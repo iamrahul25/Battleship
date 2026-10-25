@@ -115,10 +115,17 @@ describe('matchmaking', () => {
     expect(server.state.turnDeadline).toBeGreaterThan(Date.now());
   });
 
-  it('keeps classic and arsenal queues apart', async () => {
+  it('keeps classic and advance queues apart', async () => {
     const a = await colyseus.sdk.joinOrCreate(ROOM_NAME, join('Alice', { mode: 'classic' }));
-    const b = await colyseus.sdk.joinOrCreate(ROOM_NAME, join('Bobby', { mode: 'arsenal' }));
+    const b = await colyseus.sdk.joinOrCreate(ROOM_NAME, join('Bobby', { mode: 'advance' }));
     expect(a.roomId).not.toBe(b.roomId);
+  });
+
+  it('pairs older builds that send a different non-classic mode id into the Advance queue', async () => {
+    const a = await colyseus.sdk.joinOrCreate(ROOM_NAME, join('Alice', { mode: 'advance' }));
+    const b = await colyseus.sdk.joinOrCreate(ROOM_NAME, join('Bobby', { mode: 'legacy-mode' }));
+    expect(b.roomId).toBe(a.roomId);
+    expect(colyseus.getRoomById<BattleRoom>(a.roomId).state.mode).toBe('advance');
   });
 
   it('rejects outdated clients', async () => {
@@ -159,7 +166,7 @@ describe('matchmaking', () => {
 
 describe('table settings', () => {
   it('quick match always plays the standard table, ignoring size/obstacle options', async () => {
-    const { a, server } = await startMatch({ mode: 'arsenal', boardSize: 14, obstacles: 'many' });
+    const { a, server } = await startMatch({ mode: 'advance', boardSize: 14, obstacles: 'many' });
     expect(server.rules.grid).toEqual({ width: 10, height: 10 });
     expect(server.rules.obstacles ?? 'none').toBe('none');
     expect(server.rules.powerUpsEnabled).toBe(true);
@@ -177,7 +184,7 @@ describe('table settings', () => {
   });
 
   it('private rooms play the host table and sync it to both players', async () => {
-    const host = record(await colyseus.sdk.create(ROOM_NAME, join('Alice', { private: true, mode: 'arsenal', boardSize: 12, obstacles: 'many' })));
+    const host = record(await colyseus.sdk.create(ROOM_NAME, join('Alice', { private: true, mode: 'advance', boardSize: 12, obstacles: 'many' })));
     const server = colyseus.getRoomById<BattleRoom>(host.room.roomId);
     expect(server.rules.grid).toEqual({ width: 12, height: 12 });
     expect(server.rules.obstacles).toBe('many');
@@ -195,7 +202,7 @@ describe('table settings', () => {
 
   it('auto-placed fleets on a private obstacle table avoid solid cells and the battle starts', async () => {
     const host = record(
-      await colyseus.sdk.create(ROOM_NAME, join('Alice', { private: true, mode: 'arsenal', boardSize: 8, obstacles: 'many', placementTimeMs: 300 })),
+      await colyseus.sdk.create(ROOM_NAME, join('Alice', { private: true, mode: 'advance', boardSize: 8, obstacles: 'many', placementTimeMs: 300 })),
     );
     const guest = record(await colyseus.sdk.joinById(host.room.roomId, join('Guest')));
     const server = colyseus.getRoomById<BattleRoom>(host.room.roomId);

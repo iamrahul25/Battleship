@@ -3,13 +3,14 @@ import * as Clipboard from 'expo-clipboard';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo } from 'react';
 import { ActivityIndicator, Share, StyleSheet, Text, View } from 'react-native';
-import { clampBoardSize, type GameMode, OBSTACLE_LEVELS, STANDARD_MATCH_SETTINGS } from '@shared/engine';
+import { clampBoardSize, OBSTACLE_LEVELS, parseGameMode, STANDARD_MATCH_SETTINGS } from '@shared/engine';
 import { PlayerCard } from '@/components/hud/PlayerCard';
 import { describeTable } from '@/components/setup/TableSettings';
 import { Button } from '@/components/ui/Button';
 import { Panel } from '@/components/ui/Panel';
 import { Screen } from '@/components/ui/Screen';
 import type { OnlineJoin } from '@/game/controllers/OnlineGameController';
+import { MODE_NAMES } from '@/game/modes';
 import { useOnlineMatch } from '@/hooks/useOnlineMatch';
 import { useMatchStore } from '@/stores/match';
 import { toast } from '@/stores/ui';
@@ -23,7 +24,7 @@ export default function PrivateRoom() {
         ? { kind: 'code', code: params.code ?? '' }
         : {
             kind: 'create',
-            mode: (params.mode === 'classic' ? 'classic' : 'arsenal') as GameMode,
+            mode: parseGameMode(params.mode),
             settings: {
               boardSize: clampBoardSize(Number(params.boardSize) || STANDARD_MATCH_SETTINGS.boardSize),
               obstacles: OBSTACLE_LEVELS.find((o) => o === params.obstacles) ?? STANDARD_MATCH_SETTINGS.obstacles,
@@ -72,7 +73,7 @@ export default function PrivateRoom() {
               </Text>
               {join.kind === 'create' && (
                 <Text style={styles.table} testID="room-table">
-                  {join.mode.toUpperCase()} · {describeTable(join.settings)}
+                  {MODE_NAMES[join.mode].toUpperCase()} · {describeTable(join.settings)}
                 </Text>
               )}
               <View style={styles.codeActions}>

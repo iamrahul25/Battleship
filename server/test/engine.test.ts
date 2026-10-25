@@ -58,7 +58,7 @@ describe('config', () => {
     expect(fleetForSize(10)).toBe(CLASSIC_FLEET);
     expect(boardRules(3).grid).toEqual({ width: BOARD_SIZE_MIN, height: BOARD_SIZE_MIN });
     expect(boardRules(99).grid).toEqual({ width: BOARD_SIZE_MAX, height: BOARD_SIZE_MAX });
-    for (const mode of ['classic', 'arsenal'] as const) {
+    for (const mode of ['classic', 'advance'] as const) {
       let prevShips = 0;
       for (let n = BOARD_SIZE_MIN; n <= BOARD_SIZE_MAX; n++) {
         const r = createRules(boardRules(n, mode));
@@ -70,10 +70,10 @@ describe('config', () => {
       }
     }
   });
-  it('classic fleets are straight; arsenal mixes in T, L and Z ships', () => {
+  it('classic fleets are straight; advance mixes in T, L and Z ships', () => {
     for (let n = BOARD_SIZE_MIN; n <= BOARD_SIZE_MAX; n++) {
       expect(fleetForSize(n).every(isStraightShip)).toBe(true);
-      const ids = fleetForSize(n, 'arsenal').map((d) => d.id);
+      const ids = fleetForSize(n, 'advance').map((d) => d.id);
       expect(ids).toContain(SHAPED_SHIPS.T.id);
       if (n >= 9) for (const s of Object.values(SHAPED_SHIPS)) expect(ids).toContain(s.id);
     }
@@ -83,7 +83,7 @@ describe('config', () => {
     }
   });
   it('validateFleet accepts shaped ships in every rotation', () => {
-    const r = createRules(boardRules(10, 'arsenal'));
+    const r = createRules(boardRules(10, 'advance'));
     for (let seed = 0; seed < 300; seed++) {
       const ships = randomFleet(r, createRng(seed));
       const input = ships.map((s) => ({ defId: s.defId, origin: s.origin, rotation: s.rotation }));
@@ -98,7 +98,7 @@ describe('config', () => {
   });
   it('modes toggle power-ups', () => {
     expect(rulesForMode('classic').powerUpsEnabled).toBe(false);
-    expect(rulesForMode('arsenal').powerUpsEnabled).toBe(true);
+    expect(rulesForMode('advance').powerUpsEnabled).toBe(true);
   });
   it('default rules: bonus shot on hit, no touching', () => {
     expect(rules.bonusShotOnHit).toBe(true);
@@ -191,8 +191,8 @@ describe('placement', () => {
       for (const [allowTouching, mode] of [
         [false, 'classic'],
         [true, 'classic'],
-        [false, 'arsenal'],
-        [true, 'arsenal'],
+        [false, 'advance'],
+        [true, 'advance'],
       ] as const) {
         const r = createRules({ ...boardRules(n, mode), allowTouching });
         for (let seed = 0; seed < 50; seed++) {

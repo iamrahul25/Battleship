@@ -1,16 +1,17 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import type { GameMode } from '@shared/engine';
+import { parseGameMode } from '@shared/engine';
 import { Radar } from '@/components/art/Scenes';
 import { Button } from '@/components/ui/Button';
 import { Screen } from '@/components/ui/Screen';
+import { MODE_NAMES } from '@/game/modes';
 import { useOnlineMatch } from '@/hooks/useOnlineMatch';
 import { colors, fonts, text } from '@/theme';
 
 export default function Matchmaking() {
   const params = useLocalSearchParams<{ mode?: string }>();
-  const mode: GameMode = params.mode === 'classic' ? 'classic' : 'arsenal';
+  const mode = parseGameMode(params.mode);
   const join = useMemo(() => ({ kind: 'quick' as const, mode }), [mode]);
   const { error, connecting } = useOnlineMatch(join);
   const [elapsed, setElapsed] = useState(0);
@@ -28,7 +29,7 @@ export default function Matchmaking() {
         <Radar size={240} />
         <Text style={styles.title}>{error ? 'CONNECTION FAILED' : connecting ? 'CONNECTING…' : 'SEARCHING FOR OPPONENT'}</Text>
         <Text style={text.caption}>
-          {mode === 'arsenal' ? 'Arsenal' : 'Classic'} · {Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, '0')}
+          {MODE_NAMES[mode]} · {Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, '0')}
         </Text>
         {error && <Text style={[text.body, styles.error]}>{error.message}</Text>}
       </View>

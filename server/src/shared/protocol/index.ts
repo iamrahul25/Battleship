@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { BOARD_SIZE_MAX, BOARD_SIZE_MIN } from '../engine/config';
+import { BOARD_SIZE_MAX, BOARD_SIZE_MIN, parseGameMode } from '../engine/config';
 import type { FinishReason, PlacedShip, PublicView, ShotEvent } from '../engine/types';
 
 /** v2: board sizes, shaped ships, obstacles and the new weapons. */
@@ -36,7 +36,7 @@ export const roomCodeSchema = z
 export const EMOTES = ['salute', 'gg', 'boom', 'oops', 'nice', 'taunt'] as const;
 export type EmoteId = (typeof EMOTES)[number];
 
-export const gameModeSchema = z.enum(['classic', 'arsenal']);
+export const gameModeSchema = z.string().max(16).transform(parseGameMode);
 
 export const profileSchema = z.object({
   playerId: z.string().max(64).default(''),
@@ -51,7 +51,7 @@ export const obstacleLevelSchema = z.enum(['none', 'few', 'many']);
 
 export const joinOptionsSchema = z.object({
   protocolVersion: z.number().int(),
-  mode: gameModeSchema.default('arsenal'),
+  mode: gameModeSchema.default('advance'),
   private: z.boolean().optional(),
   /** Private rooms only; Quick Match always plays the standard table. */
   boardSize: z.number().int().min(BOARD_SIZE_MIN).max(BOARD_SIZE_MAX).optional(),

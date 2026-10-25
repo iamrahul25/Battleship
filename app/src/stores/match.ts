@@ -226,7 +226,7 @@ export const useMatchStore = create<MatchState>()((set, get) => {
     const summary: MatchSummary = {
       kind: controller?.kind ?? 'bot',
       difficulty: controller?.difficulty,
-      mode: controller?.mode ?? 'arsenal',
+      mode: controller?.mode ?? 'advance',
       won: item.youWon,
       reason: item.reason,
       shots: view.me.shotsFired,

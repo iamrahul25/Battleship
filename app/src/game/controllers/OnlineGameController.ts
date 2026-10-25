@@ -8,6 +8,7 @@ import {
   matchRules,
   OBSTACLE_LEVELS,
   type Orientation,
+  parseGameMode,
   type PlacedShip,
   type PublicView,
   type RuleSet,
@@ -148,7 +149,7 @@ export class OnlineGameController implements GameController {
     private profile: ProfilePayload,
   ) {
     const state = room.state as SyncedState;
-    this.mode = state.mode === 'classic' ? 'classic' : 'arsenal';
+    this.mode = parseGameMode(state.mode);
     this.settings = settingsFromState(state);
     this.rulesCache = matchRules(this.mode, this.settings);
     this.bind(room);

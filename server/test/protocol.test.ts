@@ -36,10 +36,12 @@ describe('protocol schemas', () => {
   });
   it('join options fill defaults', () => {
     const r = joinOptionsSchema.parse({ protocolVersion: PROTOCOL_VERSION });
-    expect(r.mode).toBe('arsenal');
+    expect(r.mode).toBe('advance');
     expect(r.profile.name).toBe('Sailor');
     expect(joinOptionsSchema.safeParse({}).success).toBe(false);
-    expect(joinOptionsSchema.safeParse({ protocolVersion: 1, mode: 'chaos' }).success).toBe(false);
+    expect(joinOptionsSchema.parse({ protocolVersion: 1, mode: 'classic' }).mode).toBe('classic');
+    expect(joinOptionsSchema.parse({ protocolVersion: 1, mode: 'legacy-mode' }).mode).toBe('advance');
+    expect(joinOptionsSchema.safeParse({ protocolVersion: 1, mode: 'x'.repeat(40) }).success).toBe(false);
   });
   it('join options validate private table settings', () => {
     const base = { protocolVersion: PROTOCOL_VERSION };

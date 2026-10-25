@@ -10,6 +10,7 @@ import { Segmented, Toggle } from '@/components/ui/controls';
 import { Panel } from '@/components/ui/Panel';
 import { Screen } from '@/components/ui/Screen';
 import { LocalGameController } from '@/game/controllers/LocalGameController';
+import { ADVANCE } from '@/game/modes';
 import { clearSavedGame } from '@/game/savedGame';
 import { haptic } from '@/platform/haptics';
 import { useMatchStore } from '@/stores/match';
@@ -92,7 +93,7 @@ export default function BotSetup() {
         onChange={setMode}
         options={[
           { value: 'classic', label: 'CLASSIC', hint: 'Straight ships, cannon only' },
-          { value: 'arsenal', label: 'ARSENAL', hint: 'T/L/Z ships, power-ups' },
+          { value: 'advance', label: ADVANCE.toUpperCase(), hint: 'T/L/Z ships, power-ups' },
         ]}
       />
 

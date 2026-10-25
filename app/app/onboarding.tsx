@@ -9,6 +9,7 @@ import { AvatarPicker } from '@/components/ui/AvatarPicker';
 import { Button } from '@/components/ui/Button';
 import { Panel } from '@/components/ui/Panel';
 import { Screen } from '@/components/ui/Screen';
+import { ADVANCE } from '@/game/modes';
 import { useProfileStore } from '@/stores/profile';
 import { colors, fonts, text } from '@/theme';
 
@@ -25,8 +26,8 @@ const CARDS = [
   },
   {
     icon: 'lightning-bolt' as const,
-    title: 'Charge your arsenal',
-    body: 'Hits charge your meter. Spend it on Heavy Artillery (5-cell strike) or Sonar (counts ship cells in a 3×3 area).',
+    title: 'Charge your power-ups',
+    body: `In ${ADVANCE} mode, hits charge your meter. Spend it on Heavy Artillery (5-cell strike) or Sonar (counts ship cells in a 3×3 area).`,
   },
 ];
 

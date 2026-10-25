@@ -18,6 +18,7 @@ import {
   ONLINE_PLACEMENT_TIME_MS,
   ONLINE_TURN_TIME_MS,
   other,
+  parseGameMode,
   type PlayerIndex,
   randomSeed,
   redactShotEvent,
@@ -63,7 +64,7 @@ function placementTimeFor(settings: MatchSettings, mode: GameMode): number {
 }
 
 export interface BattleRoomOptions {
-  mode?: 'classic' | 'arsenal';
+  mode?: string;
   private?: boolean;
   boardSize?: number;
   obstacles?: ObstacleLevel;
@@ -97,7 +98,7 @@ export class BattleRoom extends Room<{ state: BattleState }> {
   private seed: number | undefined;
 
   override onCreate(options: BattleRoomOptions & { protocolVersion?: number }) {
-    const mode = options.mode === 'classic' ? 'classic' : 'arsenal';
+    const mode = parseGameMode(options.mode);
     // Timing/seed overrides come from client join options, so only honour them under test.
     const hooks: BattleRoomOptions = isTest ? options : {};
     const settings = settingsFromOptions(options);

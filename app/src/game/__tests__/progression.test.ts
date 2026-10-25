@@ -10,7 +10,7 @@ import {
 const summary = (over: Partial<MatchSummary> = {}): MatchSummary => ({
   kind: 'bot',
   difficulty: 'easy',
-  mode: 'arsenal',
+  mode: 'advance',
   won: true,
   reason: 'sunk',
   shots: 40,

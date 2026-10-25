@@ -42,7 +42,7 @@ describe('bot placement', () => {
 });
 
 describe('bot decisions', () => {
-  it.each(difficulties)('%s never fires an illegal shot (classic + arsenal)', (d) => {
+  it.each(difficulties)('%s never fires an illegal shot (classic + advance)', (d) => {
     for (let seed = 1; seed <= 15; seed++) {
       expect(simulateGame(d, seed).illegal).toBe(0);
       expect(simulateGame(d, seed, createRules()).illegal).toBe(0);
@@ -51,7 +51,7 @@ describe('bot decisions', () => {
 
   it.each(difficulties)('%s sinks mixed T/L/Z fleets on every board size', (d) => {
     for (let n = BOARD_SIZE_MIN; n <= BOARD_SIZE_MAX; n++) {
-      const r = createRules(boardRules(n, 'arsenal'));
+      const r = createRules(boardRules(n, 'advance'));
       const res = simulateGame(d, n, r);
       expect(res.illegal).toBe(0);
       expect(res.shots).toBeLessThanOrEqual(n * n);
@@ -98,7 +98,7 @@ describe('bot decisions', () => {
     expect(view.remainingFleet).toHaveLength(4);
   });
 
-  it('bots use power-ups in arsenal mode', () => {
+  it('bots use power-ups in advance mode', () => {
     const totals = difficulties.map((d) => runSimulation(d, 20, createRules({ bonusShotOnHit: false })).powerUps);
     for (const t of totals) expect(t).toBeGreaterThan(0);
   });

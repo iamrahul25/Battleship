@@ -94,7 +94,7 @@ describe('obstacle generation', () => {
 
   it('random fleets fit around obstacles on every size, mode and density', () => {
     for (let n = BOARD_SIZE_MIN; n <= BOARD_SIZE_MAX; n++) {
-      for (const mode of ['classic', 'arsenal'] as const) {
+      for (const mode of ['classic', 'advance'] as const) {
         for (const obstacles of OBSTACLE_LEVELS) {
           const rules = createRules({ ...boardRules(n, mode), obstacles });
           for (let seed = 0; seed < 15; seed++) {
@@ -223,9 +223,9 @@ describe('obstacle visibility', () => {
 describe('bots with obstacles', () => {
   it.each(['easy', 'medium', 'hard'] as const)('%s plays legal games with many obstacles', (d) => {
     for (const n of [7, 10, 15]) {
-      for (const mode of ['classic', 'arsenal'] as const) {
-        const rules = createRules({ ...boardRules(n, mode), obstacles: 'many', powerUpsEnabled: mode === 'arsenal' });
-        expect(simulateGame(d, n * 3 + (mode === 'arsenal' ? 1 : 0), rules).illegal).toBe(0);
+      for (const mode of ['classic', 'advance'] as const) {
+        const rules = createRules({ ...boardRules(n, mode), obstacles: 'many', powerUpsEnabled: mode === 'advance' });
+        expect(simulateGame(d, n * 3 + (mode === 'advance' ? 1 : 0), rules).illegal).toBe(0);
       }
     }
   });

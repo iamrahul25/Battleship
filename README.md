@@ -10,10 +10,13 @@ The full design is in [`plan.md`](./plan.md).
 
 ## Features
 
-- **Modes:** *Arsenal* (default, power-ups on) and *Classic* (standard shots only).
-- **Power-ups (Arsenal):** hits, sinks and miss streaks fill a charge meter, which you spend on
-  - **Heavy Artillery** (100 charge, 2 per game): a plus-shaped 5-cell strike;
-  - **Sonar** (60 charge): scans a 3×3 area and reports how many ship cells it contains.
+- **Modes:** *Advance* (default, power-ups and shaped ships) and *Classic* (standard shots only).
+- **Power-ups (Advance mode):** hits, sinks and miss streaks fill a charge meter, which you spend on
+  - **Torpedo** (50 charge, 2 per game): runs along a row or column and hits the first ship;
+  - **Airstrike** (60 charge, 2 per game): a straight line of 4 cells;
+  - **Barrage** (70 charge, 2 per game): 4 shells on random unrevealed cells;
+  - **Sonar** (80 charge): scans a 3×3 area and reports how many ship cells it contains;
+  - **Heavy Artillery** (100 charge, 2 per game): a plus-shaped 5-cell strike.
 - **Rules toggles:** bonus shot on hit (on by default), ships may touch (off by default),
   offline turn timer (off by default; online turns are always 30 s).
 - **Bots:** Easy (Cadet), Medium (Captain), Hard (Admiral), all playing by the same rules as you.

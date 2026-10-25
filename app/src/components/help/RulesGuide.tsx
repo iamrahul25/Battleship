@@ -13,6 +13,7 @@ import {
   WEAPONS,
 } from '@shared/engine';
 import { drawObstacleIcon } from '@/art/obstacles';
+import { ADVANCE, MODE_NAMES } from '@/game/modes';
 import { WEAPON_ICONS } from '@/components/hud/PowerUpBar';
 import { drawMiss, drawHitPeg } from '@/components/grid/boardPicture';
 import { drawShipIcon, drawShipShape, shipIconSize } from '@/art/ships';
@@ -42,7 +43,7 @@ const SHAPED_NAMES = Object.values(SHAPED_SHIPS).map((d) => d.name);
 const MODES: { id: GameMode; name: string; icon: 'target' | 'lightning-bolt'; tagline: string; points: string[] }[] = [
   {
     id: 'classic',
-    name: 'Classic',
+    name: MODE_NAMES.classic,
     icon: 'target',
     tagline: 'The traditional naval duel.',
     points: [
@@ -53,8 +54,8 @@ const MODES: { id: GameMode; name: string; icon: 'target' | 'lightning-bolt'; ta
     ],
   },
   {
-    id: 'arsenal',
-    name: 'Arsenal',
+    id: 'advance',
+    name: ADVANCE,
     icon: 'lightning-bolt',
     tagline: 'Classic plus special weapons and odd-shaped ships.',
     points: [
@@ -85,12 +86,12 @@ function GameModes({ current }: { current?: GameMode }) {
     <Panel title="Game modes">
       {current ? (
         <Text style={styles.current}>
-          Current game mode: <Text style={{ color: current === 'arsenal' ? colors.brass : colors.radarGreen }}>{current === 'arsenal' ? 'Arsenal' : 'Classic'}</Text>
+          Current game mode: <Text style={{ color: current === 'advance' ? colors.brass : colors.radarGreen }}>{MODE_NAMES[current]}</Text>
         </Text>
       ) : null}
       {MODES.map((m) => {
         const active = m.id === current;
-        const tint = m.id === 'arsenal' ? colors.brass : colors.radarGreen;
+        const tint = m.id === 'advance' ? colors.brass : colors.radarGreen;
         return (
           <View key={m.id} style={[styles.modeCard, active && { borderColor: tint }]}>
             <View style={styles.modeTitle}>
@@ -184,7 +185,7 @@ export function RulesGuide({ match }: { match?: MatchInfo }) {
 
   return (
     <>
-      <GameModes current={rules ? (rules.powerUpsEnabled ? 'arsenal' : 'classic') : undefined} />
+      <GameModes current={rules ? (rules.powerUpsEnabled ? 'advance' : 'classic') : undefined} />
 
       {match ? <MatchSummary {...match} /> : null}
 
@@ -204,8 +205,8 @@ export function RulesGuide({ match }: { match?: MatchInfo }) {
         <Text style={[styles.p, { marginTop: 8 }]}>Drag ships onto the grid and tap to rotate. Ships can&apos;t overlap and, by default, can&apos;t touch, not even diagonally.</Text>
       </Panel>
 
-      <Panel title="Arsenal fleet" style={styles.panel}>
-        <Text style={styles.p}>In Arsenal mode some straight ships are swapped for shaped ships. Tap a placed ship to cycle through its rotations.</Text>
+      <Panel title={`${ADVANCE} fleet`} style={styles.panel}>
+        <Text style={styles.p}>In {ADVANCE} mode some straight ships are swapped for shaped ships. Tap a placed ship to cycle through its rotations.</Text>
         {Object.values(SHAPED_SHIPS).map((def) => {
           const cells = shapeCells(def, 0);
           const { width, height } = shipIconSize(cells, 22);
@@ -232,7 +233,7 @@ export function RulesGuide({ match }: { match?: MatchInfo }) {
         ))}
       </Panel>
 
-      <Panel title="Arsenal power-ups" accent="brass" style={styles.panel}>
+      <Panel title={`${ADVANCE} power-ups`} accent="brass" style={styles.panel}>
         <Text style={styles.p}>
           Your charge meter fills as you fight: +{CHARGE.perHit} per hit, +{CHARGE.perSunk} per ship sunk, +{CHARGE.missStreakBonus} after{' '}
           {CHARGE.missStreakLength} misses in a row (max {CHARGE.max}). Using a power-up ends your turn.

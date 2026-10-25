@@ -6,6 +6,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Segmented, Slider, Toggle } from '@/components/ui/controls';
 import { Panel } from '@/components/ui/Panel';
 import { Screen } from '@/components/ui/Screen';
+import { ADVANCE } from '@/game/modes';
 import { clearSavedGame } from '@/game/savedGame';
 import { getServerUrl } from '@/net/serverUrl';
 import { storageNamespace } from '@/platform/storage';
@@ -49,7 +50,7 @@ export default function Settings() {
           onChange={(v) => s.set({ defaultMode: v })}
           options={[
             { value: 'classic', label: 'CLASSIC' },
-            { value: 'arsenal', label: 'ARSENAL' },
+            { value: 'advance', label: ADVANCE.toUpperCase() },
           ]}
         />
       </Panel>

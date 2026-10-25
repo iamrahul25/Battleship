@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
-import { DEFAULT_BOARD_SIZE, type GameMode, type ObstacleLevel } from '@shared/engine';
+import { DEFAULT_BOARD_SIZE, type GameMode, type ObstacleLevel, parseGameMode } from '@shared/engine';
 import { zustandStorage } from '@/platform/storage';
 
 export interface SettingsState {
@@ -28,7 +28,7 @@ export const DEFAULT_SETTINGS = {
   offlineTimer: false,
   bonusShotOnHit: true,
   allowTouching: false,
-  defaultMode: 'arsenal' as GameMode,
+  defaultMode: 'advance' as GameMode,
   boardSize: DEFAULT_BOARD_SIZE,
   obstacles: 'few' as ObstacleLevel,
   reducedMotion: false,
@@ -43,9 +43,13 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'settings.v1',
-      version: 1,
+      // v2: the Advance mode id changed, so v1 `defaultMode` values must be re-parsed.
+      version: 2,
       storage: createJSONStorage(() => zustandStorage),
-      migrate: (persisted) => ({ ...DEFAULT_SETTINGS, ...(persisted as object) }),
+      migrate: (persisted) => {
+        const saved = (persisted ?? {}) as Partial<typeof DEFAULT_SETTINGS>;
+        return { ...DEFAULT_SETTINGS, ...saved, defaultMode: parseGameMode(saved.defaultMode ?? DEFAULT_SETTINGS.defaultMode) };
+      },
     },
   ),
 );

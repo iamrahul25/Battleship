@@ -71,7 +71,7 @@ firing at each other's waters. The first to sink the entire enemy fleet wins.
 - **Online 1v1** via Colyseus: Quick Match (matchmaking) + Private Room (6-char code).
 - Turn timer (online and optional offline).
 - Two power-ups: **Heavy Artillery** and **Sonar Scan**, earned through a charge meter.
-  Toggleable game mode: *Classic* (no power-ups) vs. *Arsenal* (power-ups on).
+  Toggleable game mode: *Classic* (no power-ups) vs. *Advance* (power-ups on).
 - Hit / miss / sunk animations, explosion effects, screen shake, sounds, haptics.
 - Player profile: name, avatar (preset list), stats (wins, losses, accuracy, streak).
 - Badges & medals (local, ~12 achievements).
@@ -115,7 +115,7 @@ if you want something different.
 2. Do you want login / cloud stats in MVP or is guest + local stats OK (A1, A2)?
 3. Any preferred game name, logo, or color direction (current plan: dark navy + steel + signal red)?
 4. Where do you want to host the server (A9)?
-5. Should power-ups be on by default (Arsenal mode) or off (Classic mode)?
+5. Should power-ups be on by default (Advance mode) or off (Classic mode)?
 
 ---
 
@@ -483,7 +483,7 @@ difficulty. Bots add a short "thinking" delay (600–1400 ms, randomized) so tur
 
 ## 9. Power-ups & Heavy Artillery
 
-Enabled only in **Arsenal** mode. Designed as data in `weapons.ts` so new weapons can be
+Enabled only in **Advance** mode. Designed as data in `weapons.ts` so new weapons can be
 added later without touching the reducer.
 
 ### 9.1 Charge meter
@@ -527,7 +527,7 @@ interface WeaponDef {
 ### 10.1 Room model
 - One room type: **`battle`** (`BattleRoom`), `maxClients = 2`.
 - **Quick Match:** `client.joinOrCreate('battle', { mode, profile })` — Colyseus matchmaking
-  fills rooms filtered by `mode` (classic / arsenal).
+  fills rooms filtered by `mode` (classic / advance).
 - **Private Room:** `client.create('battle', { private: true, ... })` → server generates a
   6-char code (no ambiguous chars: no 0/O/1/I). Friend joins via
   `client.join('battle', { code })` (room lookup via `filterBy(['code'])` or a code → roomId map).
@@ -697,8 +697,8 @@ interface GameController {
 | 1 | **Splash** | Logo, animated waves, loading assets/fonts/sounds. |
 | 2 | **First-run Onboarding** | Pick nickname + avatar; quick 3-card "how to play". |
 | 3 | **Home** | Big buttons: *Play vs Bot*, *Play Online*, *Private Room*; secondary: Profile, Medals, Settings, How to Play. Animated battleship + sea background. |
-| 4 | **Bot Setup** | Difficulty cards (Cadet / Captain / Admiral with descriptions), mode toggle (Classic / Arsenal), rules (bonus shot, touching), Start. |
-| 5 | **Online Menu** | Quick Match (Classic / Arsenal), Create Private Room, Join with Code. Shows connection status. |
+| 4 | **Bot Setup** | Difficulty cards (Cadet / Captain / Admiral with descriptions), mode toggle (Classic / Advance), rules (bonus shot, touching), Start. |
+| 5 | **Online Menu** | Quick Match (Classic / Advance), Create Private Room, Join with Code. Shows connection status. |
 | 6 | **Matchmaking** | Radar sweep animation, "Searching for opponent…", elapsed time, Cancel. Optional: after 30 s offer "Play vs Bot instead". |
 | 7 | **Private Room Lobby** | Big room code, Copy / Share buttons, waiting state, both player cards when joined. |
 | 8 | **Fleet Placement** | Grid + ship dock; drag, tap to rotate, Randomize, Clear, Ready; placement timer online; "Waiting for opponent…" overlay after ready. |
@@ -1100,7 +1100,7 @@ Estimates assume one developer; adjust as needed.
       a Private Room code, with turn timer, and survive a brief disconnect.
 - [ ] Hits show red markers + explosion; misses show X + splash; sunk ships reveal with
       chain explosion; all with sounds and haptics.
-- [ ] Heavy Artillery and Sonar work in Arsenal mode for players and bots.
+- [ ] Heavy Artillery and Sonar work in Advance mode for players and bots.
 - [ ] Profile shows win/loss and accuracy; at least 12 badges can be unlocked.
 - [ ] Engine and server test suites pass in CI; no opponent-fleet leak test passes.
 - [ ] Runs at ~60 fps on a mid-range Android phone.
@@ -1131,7 +1131,7 @@ settings (Medium board, default obstacles); Private Rooms let the host choose ev
 
 ### 25.2 Ship shapes
 - **Classic** mode keeps the straight-only fleet.
-- **Arsenal** mode always uses a **mixed fleet**: straight ships plus **T**, **L** and **Z**
+- **Advance** mode always uses a **mixed fleet**: straight ships plus **T**, **L** and **Z**
   tetromino ships (4 cells each), swapped in for some mid-size straight ships. All 4
   rotations are allowed for shaped ships.
 - Ship art keeps the current realistic style, cleaned up; shaped ships get dedicated hulls.
@@ -1148,7 +1148,7 @@ Obstacles may touch ships.
 | Reef | 1 cell | Yes | Yes (counts as a miss) | Passes over |
 | Mine | 1 cell | **No** (hidden) | Yes: shooter **skips their next turn** | Stops it, no penalty |
 
-### 25.4 Weapons (Arsenal)
+### 25.4 Weapons (Advance)
 Charge: max 100, +20 per hit, +40 per sunk ship, +10 after 3 misses in a row (unchanged).
 Suggested costs, open to tuning:
 

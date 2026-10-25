@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/Button';
 import { Segmented } from '@/components/ui/controls';
 import { Panel } from '@/components/ui/Panel';
 import { Screen } from '@/components/ui/Screen';
+import { ADVANCE } from '@/game/modes';
 import { useServerStatus } from '@/hooks/useServerStatus';
 import { useSettingsStore } from '@/stores/settings';
 import { toast } from '@/stores/ui';
@@ -109,7 +110,7 @@ export default function OnlineMenu() {
         onChange={setMode}
         options={[
           { value: 'classic', label: 'CLASSIC', hint: 'Straight ships, cannon only' },
-          { value: 'arsenal', label: 'ARSENAL', hint: 'T/L/Z ships, power-ups' },
+          { value: 'advance', label: ADVANCE.toUpperCase(), hint: 'T/L/Z ships, power-ups' },
         ]}
       />
       <View style={{ gap: 14, marginTop: 16 }}>{privateFirst ? [priv, quick] : [quick, priv]}</View>

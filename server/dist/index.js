@@ -59,112 +59,6 @@ import { randomInt } from "node:crypto";
 
 // src/shared/protocol/index.ts
 import { z } from "zod";
-var PROTOCOL_VERSION = 1;
-var ROOM_NAME = "battle";
-var ClientMessage = {
-  PlaceFleet: "place_fleet",
-  Ready: "ready",
-  Fire: "fire",
-  UseWeapon: "use_weapon",
-  Forfeit: "forfeit",
-  Emote: "emote",
-  Rematch: "rematch"
-};
-var ServerMessage = {
-  Sync: "sync",
-  ShotResult: "shot_result",
-  YourFleet: "your_fleet",
-  GameOver: "game_over",
-  Error: "error",
-  Emote: "emote",
-  Rematch: "rematch_status"
-};
-var ROOM_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-var ROOM_CODE_LENGTH = 6;
-var roomCodeSchema = z.string().transform((s) => s.trim().toUpperCase()).pipe(z.string().regex(new RegExp(`^[${ROOM_CODE_ALPHABET}]{${ROOM_CODE_LENGTH}}$`)));
-var EMOTES = ["salute", "gg", "boom", "oops", "nice", "taunt"];
-var gameModeSchema = z.enum(["classic", "arsenal"]);
-var profileSchema = z.object({
-  playerId: z.string().max(64).default(""),
-  name: z.string().max(64).default("Sailor"),
-  avatarId: z.string().max(32).default("captain"),
-  wins: z.number().int().min(0).max(1e6).default(0),
-  losses: z.number().int().min(0).max(1e6).default(0)
-});
-var joinOptionsSchema = z.object({
-  protocolVersion: z.number().int(),
-  mode: gameModeSchema.default("arsenal"),
-  private: z.boolean().optional(),
-  code: z.string().optional(),
-  profile: profileSchema.default({ playerId: "", name: "Sailor", avatarId: "captain", wins: 0, losses: 0 })
-});
-var coordInt = z.number().int().min(0).max(63);
-var rotationSchema = z.union([z.literal(0), z.literal(90), z.literal(180), z.literal(270)]);
-var placeFleetSchema = z.object({
-  ships: z.array(z.object({ defId: z.string().min(1).max(32), x: coordInt, y: coordInt, rotation: rotationSchema })).min(1).max(20)
-});
-var readySchema = z.object({}).passthrough().optional();
-var fireSchema = z.object({ x: coordInt, y: coordInt });
-var useWeaponSchema = z.object({
-  weaponId: z.string().min(1).max(32),
-  x: coordInt,
-  y: coordInt,
-  orientation: z.enum(["H", "V"]).optional()
-});
-var emoteSchema = z.object({ id: z.enum(EMOTES) });
-var ERROR_MESSAGES = {
-  PROTOCOL_MISMATCH: "Please update the app to play online.",
-  INVALID_MESSAGE: "Invalid message.",
-  RATE_LIMITED: "Slow down, Admiral!",
-  ROOM_NOT_FOUND: "Room not found.",
-  WRONG_PHASE: "Not allowed right now.",
-  NOT_YOUR_TURN: "It's not your turn.",
-  ALREADY_FIRED: "You already fired there.",
-  OUT_OF_BOUNDS: "Target is outside the grid.",
-  INVALID_PLACEMENT: "Invalid fleet placement.",
-  FLEET_INCOMPLETE: "Place all your ships first.",
-  ALREADY_READY: "Already ready.",
-  WEAPON_NOT_READY: "Power-up not charged.",
-  WEAPON_UNKNOWN: "Unknown power-up.",
-  POWERUPS_DISABLED: "Power-ups are disabled in Classic mode."
-};
-var BANNED = ["fuck", "shit", "bitch", "cunt", "nigg", "fag", "dick", "pussy", "asshole", "whore", "slut", "rape"];
-var NAME_MIN = 3;
-var NAME_MAX = 16;
-function sanitizeName(raw) {
-  let name = raw.replace(/[\u0000-\u001f\u007f]/g, "").replace(/\s+/g, " ").trim();
-  if (name.length > NAME_MAX) name = name.slice(0, NAME_MAX).trim();
-  if (name.length < NAME_MIN) return null;
-  const lower = name.toLowerCase();
-  for (const word of BANNED) {
-    let idx = lower.indexOf(word);
-    while (idx !== -1) {
-      name = name.slice(0, idx) + "*".repeat(word.length) + name.slice(idx + word.length);
-      idx = lower.indexOf(word, idx + word.length);
-    }
-  }
-  return name;
-}
-
-// src/services/roomCodes.ts
-var codes = /* @__PURE__ */ new Map();
-function generateRoomCode(random = randomInt) {
-  for (let attempt = 0; attempt < 1e3; attempt++) {
-    let code = "";
-    for (let i = 0; i < ROOM_CODE_LENGTH; i++) code += ROOM_CODE_ALPHABET[random(ROOM_CODE_ALPHABET.length)];
-    if (!codes.has(code)) return code;
-  }
-  throw new Error("Room code space exhausted");
-}
-function registerRoomCode(code, roomId) {
-  codes.set(code, roomId);
-}
-function unregisterRoomCode(code) {
-  codes.delete(code);
-}
-function findRoomByCode(code) {
-  return codes.get(code.trim().toUpperCase());
-}
 
 // src/shared/engine/config.ts
 var line = (length) => Array.from({ length }, (_, x) => ({ x, y: 0 }));
@@ -204,6 +98,89 @@ var FleetPresets = {
   ]
 };
 var CLASSIC_FLEET = FleetPresets.medium;
+var BOARD_SIZE_MIN = 7;
+var BOARD_SIZE_MAX = 15;
+var DEFAULT_BOARD_SIZE = GridPresets.medium.width;
+var BoardSizePresets = {
+  small: GridPresets.small.width,
+  medium: GridPresets.medium.width,
+  large: GridPresets.large.width
+};
+var SHIP_CLASS_BY_LENGTH = {
+  6: ["dreadnought", "Dreadnought"],
+  5: ["carrier", "Carrier"],
+  4: ["battleship", "Battleship"],
+  3: ["cruiser", "Cruiser"],
+  2: ["destroyer", "Destroyer"]
+};
+var SCALED_FLEET_LENGTHS = {
+  7: [4, 3, 2],
+  9: [5, 4, 3, 2],
+  11: [5, 4, 4, 3, 3, 2],
+  13: [5, 5, 4, 4, 3, 3, 2, 2],
+  14: [6, 5, 4, 4, 3, 3, 3, 2, 2]
+};
+var shaped = (id, name, cells) => ({
+  id,
+  name,
+  cells: cells.map(([x, y]) => ({ x, y })),
+  count: 1
+});
+var SHAPED_SHIPS = {
+  T: shaped("tfrigate", "T-Frigate", [
+    [0, 0],
+    [1, 0],
+    [2, 0],
+    [1, 1]
+  ]),
+  L: shaped("lcorvette", "L-Corvette", [
+    [0, 0],
+    [0, 1],
+    [1, 1],
+    [2, 1]
+  ]),
+  Z: shaped("zraider", "Z-Raider", [
+    [0, 0],
+    [1, 0],
+    [1, 1],
+    [2, 1]
+  ])
+};
+var MIXED_FLEET_SPECS = {
+  7: ["T", 3, 2],
+  8: ["T", "L", 3, 2],
+  9: ["T", "L", "Z", 2],
+  10: [5, "T", "L", "Z", 2],
+  11: [5, 4, "T", "L", "Z", 2],
+  12: [5, 4, "T", "L", "Z", 3, 2],
+  13: [5, 4, "T", "L", "Z", 3, 3, 2],
+  14: [6, 5, "T", "L", "Z", 3, 3, 2, 2],
+  15: [6, 5, 4, "T", "L", "Z", 3, 3, 2, 2]
+};
+function fleetFromSpec(spec) {
+  const counts = /* @__PURE__ */ new Map();
+  for (const item of spec) {
+    const def = typeof item === "number" ? ship(...SHIP_CLASS_BY_LENGTH[item], item) : SHAPED_SHIPS[item];
+    const entry = counts.get(def.id);
+    if (entry) entry.count++;
+    else counts.set(def.id, { def, count: 1 });
+  }
+  return [...counts.values()].map(({ def, count }) => ({ ...def, count })).sort((a, b) => b.cells.length - a.cells.length);
+}
+function clampBoardSize(n) {
+  return Math.max(BOARD_SIZE_MIN, Math.min(BOARD_SIZE_MAX, Math.round(n)));
+}
+function fleetForSize(n, mode = "classic") {
+  const size = clampBoardSize(n);
+  if (mode === "advance") return fleetFromSpec(MIXED_FLEET_SPECS[size]);
+  const preset = Object.keys(GridPresets).find((id) => GridPresets[id].width === size);
+  if (preset) return FleetPresets[preset];
+  return fleetFromSpec(SCALED_FLEET_LENGTHS[size]);
+}
+function boardRules(n, mode = "classic") {
+  const size = clampBoardSize(n);
+  return { grid: { width: size, height: size }, fleet: fleetForSize(size, mode) };
+}
 var ONLINE_TURN_TIME_MS = 3e4;
 var ONLINE_PLACEMENT_TIME_MS = 6e4;
 var MAX_CONSECUTIVE_TIMEOUTS = 3;
@@ -223,6 +200,9 @@ var DEFAULT_RULES = {
   turnTimeMs: null,
   placementTimeMs: null
 };
+function parseGameMode(value) {
+  return value === "classic" ? "classic" : "advance";
+}
 function createRules(overrides = {}) {
   return {
     ...DEFAULT_RULES,
@@ -232,7 +212,131 @@ function createRules(overrides = {}) {
   };
 }
 function rulesForMode(mode, overrides = {}) {
-  return createRules({ powerUpsEnabled: mode === "arsenal", ...overrides });
+  return createRules({ powerUpsEnabled: mode === "advance", ...overrides });
+}
+var STANDARD_MATCH_SETTINGS = { boardSize: DEFAULT_BOARD_SIZE, obstacles: "none" };
+function matchRules(mode, settings, overrides = {}) {
+  return rulesForMode(mode, {
+    ...boardRules(settings.boardSize, mode),
+    ...settings.obstacles !== "none" ? { obstacles: settings.obstacles } : {},
+    ...overrides
+  });
+}
+function totalShips(rules) {
+  return rules.fleet.reduce((sum, def) => sum + def.count, 0);
+}
+
+// src/shared/protocol/index.ts
+var PROTOCOL_VERSION = 2;
+var ROOM_NAME = "battle";
+var ClientMessage = {
+  PlaceFleet: "place_fleet",
+  Ready: "ready",
+  Fire: "fire",
+  UseWeapon: "use_weapon",
+  Forfeit: "forfeit",
+  Emote: "emote",
+  Rematch: "rematch"
+};
+var ServerMessage = {
+  Sync: "sync",
+  ShotResult: "shot_result",
+  YourFleet: "your_fleet",
+  GameOver: "game_over",
+  Error: "error",
+  Emote: "emote",
+  Rematch: "rematch_status"
+};
+var ROOM_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+var ROOM_CODE_LENGTH = 6;
+var roomCodeSchema = z.string().transform((s) => s.trim().toUpperCase()).pipe(z.string().regex(new RegExp(`^[${ROOM_CODE_ALPHABET}]{${ROOM_CODE_LENGTH}}$`)));
+var EMOTES = ["salute", "gg", "boom", "oops", "nice", "taunt"];
+var gameModeSchema = z.string().max(16).transform(parseGameMode);
+var profileSchema = z.object({
+  playerId: z.string().max(64).default(""),
+  name: z.string().max(64).default("Sailor"),
+  avatarId: z.string().max(32).default("captain"),
+  wins: z.number().int().min(0).max(1e6).default(0),
+  losses: z.number().int().min(0).max(1e6).default(0)
+});
+var obstacleLevelSchema = z.enum(["none", "few", "many"]);
+var joinOptionsSchema = z.object({
+  protocolVersion: z.number().int(),
+  mode: gameModeSchema.default("advance"),
+  private: z.boolean().optional(),
+  /** Private rooms only; Quick Match always plays the standard table. */
+  boardSize: z.number().int().min(BOARD_SIZE_MIN).max(BOARD_SIZE_MAX).optional(),
+  obstacles: obstacleLevelSchema.optional(),
+  code: z.string().optional(),
+  profile: profileSchema.default({ playerId: "", name: "Sailor", avatarId: "captain", wins: 0, losses: 0 })
+});
+var coordInt = z.number().int().min(0).max(63);
+var rotationSchema = z.union([z.literal(0), z.literal(90), z.literal(180), z.literal(270)]);
+var placeFleetSchema = z.object({
+  ships: z.array(z.object({ defId: z.string().min(1).max(32), x: coordInt, y: coordInt, rotation: rotationSchema })).min(1).max(20)
+});
+var readySchema = z.object({}).passthrough().optional();
+var fireSchema = z.object({ x: coordInt, y: coordInt });
+var useWeaponSchema = z.object({
+  weaponId: z.string().min(1).max(32),
+  x: coordInt,
+  y: coordInt,
+  orientation: z.enum(["H", "V"]).optional()
+});
+var emoteSchema = z.object({ id: z.enum(EMOTES) });
+var ERROR_MESSAGES = {
+  PROTOCOL_MISMATCH: "Please update the app to play online.",
+  INVALID_MESSAGE: "Invalid message.",
+  RATE_LIMITED: "Slow down, Admiral!",
+  ROOM_NOT_FOUND: "Room not found.",
+  WRONG_PHASE: "Not allowed right now.",
+  NOT_YOUR_TURN: "It's not your turn.",
+  ALREADY_FIRED: "You already fired there.",
+  OUT_OF_BOUNDS: "Target is outside the grid.",
+  INVALID_PLACEMENT: "Invalid fleet placement.",
+  FLEET_INCOMPLETE: "Place all your ships first.",
+  ALREADY_READY: "Already ready.",
+  WEAPON_NOT_READY: "Power-up not charged.",
+  WEAPON_UNKNOWN: "Unknown power-up.",
+  POWERUPS_DISABLED: "Power-ups are disabled in Classic mode.",
+  BLOCKED: "You can't fire at rocks or islands."
+};
+var BANNED = ["fuck", "shit", "bitch", "cunt", "nigg", "fag", "dick", "pussy", "asshole", "whore", "slut", "rape"];
+var NAME_MIN = 3;
+var NAME_MAX = 16;
+function sanitizeName(raw) {
+  let name = raw.replace(/[\u0000-\u001f\u007f]/g, "").replace(/\s+/g, " ").trim();
+  if (name.length > NAME_MAX) name = name.slice(0, NAME_MAX).trim();
+  if (name.length < NAME_MIN) return null;
+  const lower = name.toLowerCase();
+  for (const word of BANNED) {
+    let idx = lower.indexOf(word);
+    while (idx !== -1) {
+      name = name.slice(0, idx) + "*".repeat(word.length) + name.slice(idx + word.length);
+      idx = lower.indexOf(word, idx + word.length);
+    }
+  }
+  return name;
+}
+
+// src/services/roomCodes.ts
+var codes = /* @__PURE__ */ new Map();
+function generateRoomCode(random = randomInt) {
+  for (let attempt = 0; attempt < 1e3; attempt++) {
+    let code = "";
+    for (let i = 0; i < ROOM_CODE_LENGTH; i++) code += ROOM_CODE_ALPHABET[random(ROOM_CODE_ALPHABET.length)];
+    if (!codes.has(code)) return code;
+  }
+  throw new Error("Room code space exhausted");
+}
+function registerRoomCode(code, roomId) {
+  codes.set(code, roomId);
+}
+function unregisterRoomCode(code) {
+  codes.delete(code);
+}
+function findRoomByCode(code) {
+  return codes.get(code.trim().toUpperCase());
 }
 
 // src/shared/engine/rng.ts
@@ -284,16 +388,26 @@ var ORTHO = [
   { x: 0, y: -1 }
 ];
 var ALL8 = [...ORTHO, { x: 1, y: 1 }, { x: 1, y: -1 }, { x: -1, y: 1 }, { x: -1, y: -1 }];
+function neighbours4(dims, c) {
+  return ORTHO.map((d) => ({ x: c.x + d.x, y: c.y + d.y })).filter((n) => inBounds(dims, n));
+}
 function neighbours8(dims, c) {
   return ALL8.map((d) => ({ x: c.x + d.x, y: c.y + d.y })).filter((n) => inBounds(dims, n));
+}
+function shipAt(ships, c) {
+  return ships.find((s) => s.cells.some((p) => p.x === c.x && p.y === c.y));
 }
 function allCells(dims) {
   const out = [];
   for (let y = 0; y < dims.height; y++) for (let x = 0; x < dims.width; x++) out.push({ x, y });
   return out;
 }
+function obstacleAt(board, c) {
+  return board.obstacles?.[key(c)];
+}
+var isSolidObstacle = (kind) => kind === "rock" || kind === "island";
 function isTargetable(board, c) {
-  return cellAt(board, c) === "unknown";
+  return cellAt(board, c) === "unknown" && !isSolidObstacle(obstacleAt(board, c));
 }
 function legalTargets(board) {
   return allCells(board).filter((c) => isTargetable(board, c));
@@ -310,8 +424,61 @@ function cloneBoard(board) {
     width: board.width,
     height: board.height,
     ships: board.ships.map((s) => ({ ...s, origin: { ...s.origin }, cells: s.cells.map((c) => ({ ...c })) })),
-    shots: { ...board.shots }
+    shots: { ...board.shots },
+    ...board.obstacles ? { obstacles: { ...board.obstacles } } : {}
   };
+}
+
+// src/shared/engine/obstacles.ts
+var OBSTACLE_KINDS = ["rock", "island", "reef", "mine"];
+var DENSITY = {
+  few: { rock: 2, island: 1, reef: 1, mine: 1 },
+  many: { rock: 3, island: 2, reef: 3, mine: 2 }
+};
+function obstacleCounts(rules) {
+  const level = rules.obstacles ?? "none";
+  const area = rules.grid.width * rules.grid.height;
+  const counts = { rock: 0, island: 0, reef: 0, mine: 0 };
+  if (level === "none") return counts;
+  for (const kind of OBSTACLE_KINDS) counts[kind] = Math.max(1, Math.round(DENSITY[level][kind] * area / 100));
+  return counts;
+}
+function generateObstacles(rules, rng) {
+  const counts = obstacleCounts(rules);
+  const dims = rules.grid;
+  const out = {};
+  const free = (c) => !out[key(c)];
+  for (let i = 0; i < counts.island; i++) {
+    const start = rng.pick(allCells(dims).filter(free));
+    if (!start) break;
+    const size = 2 + rng.int(2);
+    const cluster = [start];
+    const inCluster = (c) => cluster.some((p) => p.x === c.x && p.y === c.y);
+    while (cluster.length < size) {
+      const options = cluster.flatMap((c) => neighbours4(dims, c)).filter((c) => free(c) && !inCluster(c));
+      if (!options.length) break;
+      cluster.push(rng.pick(options));
+    }
+    for (const c of cluster) out[key(c)] = "island";
+  }
+  for (const kind of ["rock", "reef", "mine"]) {
+    for (let i = 0; i < counts[kind]; i++) {
+      const cells = allCells(dims).filter(free);
+      if (!cells.length) break;
+      out[key(rng.pick(cells))] = kind;
+    }
+  }
+  return out;
+}
+function obstacleFields(obstacles) {
+  return obstacles && Object.keys(obstacles).length ? { obstacles } : {};
+}
+function visibleObstacles(board, reveal) {
+  const out = {};
+  for (const [k, kind] of Object.entries(board.obstacles ?? {})) {
+    if (reveal || kind !== "mine" || board.shots[k] === "miss") out[k] = kind;
+  }
+  return out;
 }
 
 // src/shared/engine/placement.ts
@@ -371,6 +538,7 @@ function blockedSets(board, rules, ignoreUid) {
 function placementError(board, def, origin, rotation, rules, ignoreUid) {
   const cells = shipCells(def, origin, rotation);
   if (!cells.every((c) => inBounds(board, c))) return "OUT_OF_BOUNDS";
+  if (cells.some((c) => board.obstacles?.[key(c)])) return "OBSTACLE";
   const { occupied, halo } = blockedSets(board, rules, ignoreUid);
   if (cells.some((c) => occupied.has(key(c)))) return "OVERLAP";
   if (cells.some((c) => halo.has(key(c)))) return "TOUCHING";
@@ -399,9 +567,9 @@ function fleetInstances(rules) {
 function findDef(rules, defId) {
   return rules.fleet.find((d) => d.id === defId);
 }
-function validateFleet(rules, input) {
+function validateFleet(rules, input, obstacles) {
   const counts = /* @__PURE__ */ new Map();
-  let board = createBoard(rules.grid.width, rules.grid.height);
+  let board = { ...createBoard(rules.grid.width, rules.grid.height), ...obstacleFields(obstacles) };
   for (const item of input) {
     const def = findDef(rules, item.defId);
     if (!def) return { ok: false, reason: `Unknown ship ${item.defId}` };
@@ -426,7 +594,7 @@ function placementCandidates(board, def, rules) {
     for (let y = 0; y + size.height <= board.height; y++) {
       for (let x = 0; x + size.width <= board.width; x++) {
         const cells = shipCells(def, { x, y }, rotation);
-        if (cells.some((c) => occupied.has(key(c)) || halo.has(key(c)))) continue;
+        if (cells.some((c) => occupied.has(key(c)) || halo.has(key(c)) || board.obstacles?.[key(c)])) continue;
         out.push({ origin: { x, y }, rotation, cells });
       }
     }
@@ -446,7 +614,7 @@ function randomFleet(rules, rng, options = {}) {
   const maxAttempts = options.maxAttempts ?? 500;
   const instances = fleetInstances(rules);
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    let board = createBoard(rules.grid.width, rules.grid.height);
+    let board = { ...createBoard(rules.grid.width, rules.grid.height), ...obstacleFields(options.obstacles) };
     let failed = false;
     for (const inst of instances) {
       const candidates = placementCandidates(board, inst.def, rules);
@@ -475,7 +643,10 @@ function resolveShot(board, coord, rules) {
   const shipIndex = board.ships.findIndex((s) => s.cells.some((c) => sameCoord(c, coord)));
   if (shipIndex === -1) {
     shots[key(coord)] = "miss";
-    return { board: { ...board, shots }, result: { coord, result: "miss" }, knownEmpty: [] };
+    const obstacle = obstacleAt(board, coord);
+    const result = { coord, result: "miss" };
+    if (obstacle === "reef" || obstacle === "mine") result.obstacle = obstacle;
+    return { board: { ...board, shots }, result, knownEmpty: [] };
   }
   const ships = board.ships.slice();
   const ship2 = { ...ships[shipIndex], hits: ships[shipIndex].hits + 1 };
@@ -487,7 +658,7 @@ function resolveShot(board, coord, rules) {
     if (!rules.allowTouching) {
       for (const c of ship2.cells) {
         for (const n of neighbours8(board, c)) {
-          if (cellAt({ shots }, n) === "unknown") {
+          if (cellAt({ shots }, n) === "unknown" && !isSolidObstacle(obstacleAt(board, n))) {
             shots[key(n)] = "knownEmpty";
             knownEmpty.push(n);
           }
@@ -513,16 +684,64 @@ var WEAPONS = {
   standard: {
     id: "standard",
     name: "Cannon",
+    short: "CANNON",
     description: "Single shot.",
     cost: 0,
     maxUses: null,
     pattern: [{ x: 0, y: 0 }],
-    kind: "damage",
+    kind: "area",
     rotatable: false
+  },
+  barrage: {
+    id: "barrage",
+    name: "Barrage",
+    short: "BARRAGE",
+    description: "4 shots land on random unrevealed enemy cells.",
+    cost: 70,
+    maxUses: 2,
+    pattern: [],
+    kind: "random",
+    rotatable: false,
+    shots: 4
+  },
+  sonar: {
+    id: "sonar",
+    name: "Sonar Scan",
+    short: "SONAR",
+    description: "Reveals how many ship cells hide in a 3\xD73 area.",
+    cost: 80,
+    maxUses: null,
+    pattern: [-1, 0, 1].flatMap((y) => [-1, 0, 1].map((x) => ({ x, y }))),
+    kind: "reveal",
+    rotatable: false
+  },
+  torpedo: {
+    id: "torpedo",
+    name: "Torpedo",
+    short: "TORPEDO",
+    description: "Runs along a row or column from the edge and strikes the first ship in its path.",
+    cost: 50,
+    maxUses: 2,
+    pattern: [],
+    kind: "torpedo",
+    rotatable: true
+  },
+  airstrike: {
+    id: "airstrike",
+    name: "Airstrike",
+    short: "AIRSTRIKE",
+    description: "Hits a straight line of 4 cells, horizontal or vertical.",
+    cost: 60,
+    maxUses: 2,
+    pattern: [-1, 0, 1, 2].map((x) => ({ x, y: 0 })),
+    kind: "area",
+    rotatable: true,
+    keepInside: true
   },
   artillery: {
     id: "artillery",
     name: "Heavy Artillery",
+    short: "ARTILLERY",
     description: "Strikes a plus-shaped 5-cell pattern.",
     cost: 100,
     maxUses: 2,
@@ -533,17 +752,7 @@ var WEAPONS = {
       { x: 0, y: 1 },
       { x: 0, y: -1 }
     ],
-    kind: "damage",
-    rotatable: false
-  },
-  sonar: {
-    id: "sonar",
-    name: "Sonar Scan",
-    description: "Reveals how many ship cells hide in a 3\xD73 area.",
-    cost: 60,
-    maxUses: null,
-    pattern: [-1, 0, 1].flatMap((y) => [-1, 0, 1].map((x) => ({ x, y }))),
-    kind: "reveal",
+    kind: "area",
     rotatable: false
   }
 };
@@ -551,7 +760,38 @@ function getWeapon(id) {
   return WEAPONS[id];
 }
 function patternCells(weapon, target, dims, orientation = "H") {
-  return weapon.pattern.map((o) => weapon.rotatable && orientation === "V" ? { x: o.y, y: o.x } : o).map((o) => ({ x: target.x + o.x, y: target.y + o.y })).filter((c) => inBounds(dims, c));
+  const offsets = weapon.pattern.map((o) => weapon.rotatable && orientation === "V" ? { x: o.y, y: o.x } : o);
+  let { x: tx, y: ty } = target;
+  if (weapon.keepInside && offsets.length) {
+    const xs = offsets.map((o) => o.x);
+    const ys = offsets.map((o) => o.y);
+    tx = Math.min(Math.max(tx, -Math.min(...xs)), dims.width - 1 - Math.max(...xs));
+    ty = Math.min(Math.max(ty, -Math.min(...ys)), dims.height - 1 - Math.max(...ys));
+  }
+  return offsets.map((o) => ({ x: tx + o.x, y: ty + o.y })).filter((c) => inBounds(dims, c));
+}
+function torpedoStep(launch, dims, orientation) {
+  if (orientation === "H") {
+    if (launch.x === 0) return { x: 1, y: 0 };
+    if (launch.x === dims.width - 1) return { x: -1, y: 0 };
+    return null;
+  }
+  if (launch.y === 0) return { x: 0, y: 1 };
+  if (launch.y === dims.height - 1) return { x: 0, y: -1 };
+  return null;
+}
+function torpedoLane(board, launch, orientation) {
+  const step = torpedoStep(launch, board, orientation);
+  if (!step) return [];
+  const out = [];
+  for (let c = launch; inBounds(board, c); c = { x: c.x + step.x, y: c.y + step.y }) {
+    if (isSolidObstacle(obstacleAt(board, c))) break;
+    out.push(c);
+  }
+  return out;
+}
+function torpedoHasTarget(board, lane) {
+  return lane.some((c) => cellAt(board, c) === "unknown" && obstacleAt(board, c) !== "reef");
 }
 function weaponUsesLeft(player, weapon) {
   if (weapon.maxUses === null) return Infinity;
@@ -565,9 +805,9 @@ function canUseWeapon(player, weapon, rules) {
 
 // src/shared/engine/game.ts
 var other = (p) => p === 0 ? 1 : 0;
-function createPlayerState(rules) {
+function createPlayerState(rules, rng) {
   return {
-    board: createBoard(rules.grid.width, rules.grid.height),
+    board: { ...createBoard(rules.grid.width, rules.grid.height), ...obstacleFields(rng ? generateObstacles(rules, rng) : void 0) },
     ready: false,
     charge: 0,
     weaponUses: {},
@@ -580,17 +820,22 @@ function createPlayerState(rules) {
   };
 }
 function createGame(rules, seed) {
+  const rng = createRng(seed);
   return {
     rules,
     phase: "placement",
-    players: [createPlayerState(rules), createPlayerState(rules)],
+    players: [createPlayerState(rules, rng), createPlayerState(rules, rng)],
     activePlayer: 0,
     turnNumber: 0,
     winner: null,
     finishReason: null,
     log: [],
-    rngState: seed >>> 0
+    rngState: rng.state
   };
+}
+function fleetBoard(state, player, ships) {
+  const { width, height } = state.rules.grid;
+  return { ...createBoard(width, height), ...obstacleFields(state.players[player].board.obstacles), ships };
 }
 function startDraft(state) {
   return {
@@ -641,8 +886,13 @@ function pushShot(d, shot) {
     return;
   }
   if (ev.turnPassed) {
-    d.state.activePlayer = defender;
     d.state.turnNumber += 1;
+    if (d.state.players[defender].skipNextTurn) {
+      setPlayer(d, defender, { skipNextTurn: false });
+      ev.turnSkipped = defender;
+    } else {
+      d.state.activePlayer = defender;
+    }
   }
 }
 function fireStandard(d, player, target, auto) {
@@ -651,12 +901,14 @@ function fireStandard(d, player, target, auto) {
   setPlayer(d, defender, { board: resolved.board });
   const attacker = d.state.players[player];
   const isHit = resolved.result.result !== "miss";
+  const mineTriggered = resolved.result.obstacle === "mine";
   const patch = {
     shotsFired: attacker.shotsFired + 1,
     hits: attacker.hits + (isHit ? 1 : 0),
     shipsSunk: attacker.shipsSunk + (resolved.result.result === "sunk" ? 1 : 0),
     consecutiveTimeouts: auto ? attacker.consecutiveTimeouts : 0
   };
+  if (mineTriggered) patch.skipNextTurn = true;
   if (d.state.rules.powerUpsEnabled) {
     if (isHit) {
       patch.missStreak = 0;
@@ -675,7 +927,8 @@ function fireStandard(d, player, target, auto) {
     results: [resolved.result],
     knownEmpty: resolved.knownEmpty.length ? resolved.knownEmpty : void 0,
     turnPassed: !isHit || !d.state.rules.bonusShotOnHit,
-    auto: auto || void 0
+    auto: auto || void 0,
+    mineTriggered: mineTriggered || void 0
   });
 }
 function checkTurn(state, player) {
@@ -691,11 +944,12 @@ function applyAction(state, action) {
       if (p.ready) return fail(state, "ALREADY_READY");
       const v = validateFleet(
         state.rules,
-        action.ships.map((s) => ({ defId: s.defId, origin: s.origin, rotation: s.rotation }))
+        action.ships.map((s) => ({ defId: s.defId, origin: s.origin, rotation: s.rotation })),
+        p.board.obstacles
       );
       if (!v.ok) return fail(state, "INVALID_PLACEMENT");
       const d = startDraft(state);
-      setPlayer(d, action.player, { board: { ...createBoard(state.rules.grid.width, state.rules.grid.height), ships: v.ships } });
+      setPlayer(d, action.player, { board: fleetBoard(state, action.player, v.ships) });
       d.events.push({ type: "fleetPlaced", player: action.player });
       return finishDraft(d);
     }
@@ -713,6 +967,7 @@ function applyAction(state, action) {
       if (err) return fail(state, err);
       const board = state.players[other(action.player)].board;
       if (!inBounds(board, action.target)) return fail(state, "OUT_OF_BOUNDS");
+      if (isSolidObstacle(obstacleAt(board, action.target))) return fail(state, "BLOCKED");
       if (!isTargetable(board, action.target)) return fail(state, "ALREADY_FIRED");
       const d = startDraft(state);
       fireStandard(d, action.player, action.target, false);
@@ -730,7 +985,7 @@ function applyAction(state, action) {
       const defenderIdx = other(action.player);
       const board = state.players[defenderIdx].board;
       if (!inBounds(board, action.target)) return fail(state, "OUT_OF_BOUNDS");
-      const area = patternCells(weapon, action.target, board, action.orientation);
+      const orientation = action.orientation ?? "H";
       const d = startDraft(state);
       const usage = {
         charge: attacker.charge - weapon.cost,
@@ -745,30 +1000,63 @@ function applyAction(state, action) {
           weaponId: weapon.id,
           target: action.target,
           results: [],
-          sonar: resolveSonar(board, area),
+          sonar: resolveSonar(board, patternCells(weapon, action.target, board, orientation)),
           turnPassed: true
         });
         return finishDraft(d);
       }
-      const targets = area.filter((c) => isTargetable(board, c));
-      if (targets.length === 0) return fail(state, "ALREADY_FIRED");
       let current = board;
       const results = [];
       const knownEmpty = [];
-      for (const c of targets) {
-        if (!isTargetable(current, c)) continue;
+      let path;
+      const fireAt = (c) => {
         const r = resolveShot(current, c, state.rules);
         current = r.board;
         results.push(r.result);
         knownEmpty.push(...r.knownEmpty);
+      };
+      if (weapon.kind === "random") {
+        const pool = (b) => legalTargets(b).filter((c) => obstacleAt(b, c) !== "reef");
+        if (pool(board).length === 0) return fail(state, "ALREADY_FIRED");
+        for (let i = 0; i < (weapon.shots ?? 1); i++) {
+          const open = pool(current);
+          if (open.length === 0) break;
+          fireAt(d.rng.pick(open));
+        }
+      } else if (weapon.kind === "torpedo") {
+        if (!torpedoStep(action.target, board, orientation)) return fail(state, "OUT_OF_BOUNDS");
+        const lane = torpedoLane(board, action.target, orientation);
+        if (lane.length === 0) return fail(state, "BLOCKED");
+        if (!torpedoHasTarget(board, lane)) return fail(state, "ALREADY_FIRED");
+        path = [];
+        for (const c of lane) {
+          path.push(c);
+          if (cellAt(current, c) !== "unknown") continue;
+          const ob = obstacleAt(current, c);
+          if (ob === "reef") continue;
+          if (ob === "mine" || shipAt(current.ships, c)) {
+            fireAt(c);
+            break;
+          }
+          current = { ...current, shots: { ...current.shots, [key(c)]: "knownEmpty" } };
+          knownEmpty.push(c);
+        }
+      } else {
+        const targets = patternCells(weapon, action.target, board, orientation).filter((c) => isTargetable(board, c));
+        if (targets.length === 0) return fail(state, "ALREADY_FIRED");
+        for (const c of targets) {
+          if (isTargetable(current, c)) fireAt(c);
+        }
       }
       const hits = results.filter((r) => r.result !== "miss").length;
+      const mineTriggered = weapon.kind !== "torpedo" && results.some((r) => r.obstacle === "mine");
       setPlayer(d, defenderIdx, { board: current });
       setPlayer(d, action.player, {
         ...usage,
         shotsFired: attacker.shotsFired + results.length,
         hits: attacker.hits + hits,
-        shipsSunk: attacker.shipsSunk + results.filter((r) => r.result === "sunk").length
+        shipsSunk: attacker.shipsSunk + results.filter((r) => r.result === "sunk").length,
+        ...mineTriggered ? { skipNextTurn: true } : {}
       });
       pushShot(d, {
         by: action.player,
@@ -776,7 +1064,9 @@ function applyAction(state, action) {
         target: action.target,
         results,
         knownEmpty: knownEmpty.length ? knownEmpty : void 0,
-        turnPassed: true
+        path,
+        turnPassed: true,
+        mineTriggered: mineTriggered || void 0
       });
       return finishDraft(d);
     }
@@ -786,8 +1076,8 @@ function applyAction(state, action) {
         if (p.ready) return fail(state, "ALREADY_READY");
         const d2 = startDraft(state);
         if (!isFleetComplete(p.board, state.rules)) {
-          const ships = randomFleet(state.rules, d2.rng);
-          setPlayer(d2, action.player, { board: { ...createBoard(state.rules.grid.width, state.rules.grid.height), ships } });
+          const ships = randomFleet(state.rules, d2.rng, { obstacles: p.board.obstacles });
+          setPlayer(d2, action.player, { board: fleetBoard(state, action.player, ships) });
           d2.events.push({ type: "fleetPlaced", player: action.player });
         }
         markReady(d2, action.player);
@@ -820,7 +1110,8 @@ function redactBoard(board, reveal) {
     width: board.width,
     height: board.height,
     shots: { ...board.shots },
-    ships: ships.map((s) => ({ ...s, origin: { ...s.origin }, cells: s.cells.map((c) => ({ ...c })) }))
+    ships: ships.map((s) => ({ ...s, origin: { ...s.origin }, cells: s.cells.map((c) => ({ ...c })) })),
+    ...obstacleFields(visibleObstacles(board, reveal))
   };
 }
 function redactShotEvent(event, viewer) {
@@ -893,12 +1184,17 @@ var BattleState = schema(
     activeSessionId: t.string().default(""),
     /** Server epoch ms for the current turn/placement deadline (0 = none). */
     turnDeadline: t.number().default(0),
+    /** Server epoch ms when `turnDeadline` was set, so clients can correct for clock skew. */
+    serverTime: t.number().default(0),
     /** True while the active player is disconnected and the turn timer is frozen. */
     paused: t.boolean().default(false),
     turnNumber: t.number().default(0),
     winnerSessionId: t.string().default(""),
     finishReason: t.string().default(""),
-    mode: t.string().default("arsenal"),
+    mode: t.string().default("advance"),
+    boardSize: t.number().default(10),
+    /** none | few | many */
+    obstacles: t.string().default("none"),
     code: t.string().default(""),
     isPrivate: t.boolean().default(false)
   },
@@ -906,6 +1202,20 @@ var BattleState = schema(
 );
 
 // src/rooms/BattleRoom.ts
+var roomSettingsSchema = joinOptionsSchema.pick({ boardSize: true, obstacles: true });
+function settingsFromOptions(options) {
+  if (!options.private) return STANDARD_MATCH_SETTINGS;
+  const parsed = roomSettingsSchema.safeParse(options);
+  if (!parsed.success) return STANDARD_MATCH_SETTINGS;
+  return {
+    boardSize: parsed.data.boardSize ?? STANDARD_MATCH_SETTINGS.boardSize,
+    obstacles: parsed.data.obstacles ?? STANDARD_MATCH_SETTINGS.obstacles
+  };
+}
+function placementTimeFor(settings, mode) {
+  const ships = totalShips(matchRules(mode, settings));
+  return ONLINE_PLACEMENT_TIME_MS + Math.max(0, ships - 5) * 5e3;
+}
 var BattleRoom = class extends Room {
   maxClients = 2;
   maxMessagesPerSecond = 30;
@@ -920,16 +1230,19 @@ var BattleRoom = class extends Room {
   reconnectSeconds = config.reconnectSeconds;
   seed;
   onCreate(options) {
-    const mode = options.mode === "classic" ? "classic" : "arsenal";
+    const mode = parseGameMode(options.mode);
     const hooks = isTest ? options : {};
-    this.rules = rulesForMode(mode, {
+    const settings = settingsFromOptions(options);
+    this.rules = matchRules(mode, settings, {
       turnTimeMs: hooks.turnTimeMs ?? ONLINE_TURN_TIME_MS,
-      placementTimeMs: hooks.placementTimeMs ?? ONLINE_PLACEMENT_TIME_MS
+      placementTimeMs: hooks.placementTimeMs ?? placementTimeFor(settings, mode)
     });
     this.reconnectSeconds = hooks.reconnectSeconds ?? config.reconnectSeconds;
     this.seed = hooks.seed;
     this.state = new BattleState();
     this.state.mode = mode;
+    this.state.boardSize = settings.boardSize;
+    this.state.obstacles = settings.obstacles;
     if (options.private) {
       const code = generateRoomCode();
       this.state.code = code;
@@ -937,7 +1250,7 @@ var BattleRoom = class extends Room {
       registerRoomCode(code, this.roomId);
       this.setPrivate(true);
     }
-    this.setMetadata({ mode, code: this.state.code });
+    this.setMetadata({ mode, code: this.state.code, ...settings });
     this.idleTimer = this.clock.setTimeout(() => {
       if (this.state.phase === "waiting") this.disconnect();
     }, config.idleRoomMs);
@@ -1136,7 +1449,9 @@ var BattleRoom = class extends Room {
     this.turnTimer?.clear();
     this.pausedRemainingMs = null;
     this.state.paused = false;
-    this.state.turnDeadline = Date.now() + ms;
+    const now = Date.now();
+    this.state.serverTime = now;
+    this.state.turnDeadline = now + ms;
     this.turnTimer = this.clock.setTimeout(onExpire, ms);
   }
   clearTimer() {
@@ -1311,7 +1626,9 @@ function createGameServer(options = {}) {
     gracefullyShutdown: options.gracefullyShutdown ?? true,
     express: (app) => configureRoutes(app, options.withMonitor ?? false)
   });
-  server2.define(ROOM_NAME, BattleRoom).filterBy(["mode"]);
+  const battle = server2.define(ROOM_NAME, BattleRoom).filterBy(["mode"]);
+  const filterOptions = battle.getFilterOptions.bind(battle);
+  battle.getFilterOptions = (opts = {}) => ({ ...filterOptions(opts), mode: parseGameMode(opts.mode) });
   return server2;
 }
 

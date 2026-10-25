@@ -1,5 +1,5 @@
 /**
- * Bot difficulty simulation: `npm run bot-sim -- [games] [--arsenal]`.
+ * Bot difficulty simulation: `npm run bot-sim -- [games] [--advance]`.
  * Exits non-zero unless mean shots-to-win satisfy Hard < Medium < Easy.
  */
 import { createRules, type Difficulty } from '../src/shared/engine';
@@ -7,8 +7,8 @@ import { runSimulation } from './simulate';
 
 const args = process.argv.slice(2);
 const games = Number(args.find((a) => /^\d+$/.test(a)) ?? 1000);
-const arsenal = args.includes('--arsenal');
-const rules = createRules({ powerUpsEnabled: arsenal, bonusShotOnHit: false });
+const advance = args.includes('--advance');
+const rules = createRules({ powerUpsEnabled: advance, bonusShotOnHit: false });
 
 const rows = (['easy', 'medium', 'hard'] as Difficulty[]).map((d) => {
   const start = performance.now();
@@ -28,10 +28,10 @@ const rows = (['easy', 'medium', 'hard'] as Difficulty[]).map((d) => {
   };
 });
 
-console.log(`Bot simulation (${arsenal ? 'Arsenal' : 'Classic'} rules, ${games} games each)`);
+console.log(`Bot simulation (${advance ? 'Advance' : 'Classic'} rules, ${games} games each)`);
 console.table(rows);
 
-const [easy, medium, hard] = rows.map((r) => Number(arsenal ? r.meanTurns : r.meanShots));
+const [easy, medium, hard] = rows.map((r) => Number(advance ? r.meanTurns : r.meanShots));
 const illegal = rows.some((r) => r.illegal > 0);
 if (!(hard < medium && medium < easy) || illegal) {
   console.error('FAIL: expected Hard < Medium < Easy with no illegal moves');

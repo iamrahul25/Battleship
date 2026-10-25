@@ -79,7 +79,7 @@ const shaped = (id: string, name: string, cells: [number, number][]): ShipDef =>
   count: 1,
 });
 
-/** Tetromino ships used by the Arsenal mixed fleet. */
+/** Tetromino ships used by the Advance mode mixed fleet. */
 export const SHAPED_SHIPS = {
   T: shaped('tfrigate', 'T-Frigate', [
     [0, 0],
@@ -103,7 +103,7 @@ export const SHAPED_SHIPS = {
 
 type FleetSpec = (number | keyof typeof SHAPED_SHIPS)[];
 
-/** Arsenal fleets: shaped ships replace mid-size straight ones, keeping ~16–20% ship cells. */
+/** Advance mode fleets: shaped ships replace mid-size straight ones, keeping ~16–20% ship cells. */
 const MIXED_FLEET_SPECS: Record<number, FleetSpec> = {
   7: ['T', 3, 2],
   8: ['T', 'L', 3, 2],
@@ -133,10 +133,10 @@ export function clampBoardSize(n: number): number {
   return Math.max(BOARD_SIZE_MIN, Math.min(BOARD_SIZE_MAX, Math.round(n)));
 }
 
-/** Fleet auto-scaled to an n×n board. Arsenal mixes in T/L/Z ships; Classic stays straight. */
+/** Fleet auto-scaled to an n×n board. Advance mode mixes in T/L/Z ships; Classic stays straight. */
 export function fleetForSize(n: number, mode: GameMode = 'classic'): ShipDef[] {
   const size = clampBoardSize(n);
-  if (mode === 'arsenal') return fleetFromSpec(MIXED_FLEET_SPECS[size]);
+  if (mode === 'advance') return fleetFromSpec(MIXED_FLEET_SPECS[size]);
   const preset = (Object.keys(GridPresets) as GridPresetId[]).find((id) => GridPresets[id].width === size);
   if (preset) return FleetPresets[preset];
   return fleetFromSpec(SCALED_FLEET_LENGTHS[size]);
@@ -175,7 +175,12 @@ export const DEFAULT_RULES: RuleSet = {
   placementTimeMs: null,
 };
 
-export type GameMode = 'classic' | 'arsenal';
+export type GameMode = 'classic' | 'advance';
+
+/** Anything other than `classic` (including ids from older app builds and saves) plays Advance. */
+export function parseGameMode(value: unknown): GameMode {
+  return value === 'classic' ? 'classic' : 'advance';
+}
 
 export function createRules(overrides: Partial<RuleSet> = {}): RuleSet {
   return {
@@ -189,7 +194,7 @@ export function createRules(overrides: Partial<RuleSet> = {}): RuleSet {
 export const OBSTACLE_LEVELS: ObstacleLevel[] = ['none', 'few', 'many'];
 
 export function rulesForMode(mode: GameMode, overrides: Partial<RuleSet> = {}): RuleSet {
-  return createRules({ powerUpsEnabled: mode === 'arsenal', ...overrides });
+  return createRules({ powerUpsEnabled: mode === 'advance', ...overrides });
 }
 
 /** Host-chosen table settings for a match. */

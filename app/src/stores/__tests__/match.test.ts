@@ -24,7 +24,7 @@ afterEach(() => {
 function newGame() {
   const controller = new LocalGameController({
     difficulty: 'medium',
-    mode: 'arsenal',
+    mode: 'advance',
     bonusShotOnHit: true,
     allowTouching: false,
     offlineTimer: false,

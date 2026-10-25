@@ -38,7 +38,7 @@ export const BattleState = schema(
     turnNumber: t.number().default(0),
     winnerSessionId: t.string().default(''),
     finishReason: t.string().default(''),
-    mode: t.string().default('arsenal'),
+    mode: t.string().default('advance'),
     boardSize: t.number().default(10),
     /** none | few | many */
     obstacles: t.string().default('none'),
