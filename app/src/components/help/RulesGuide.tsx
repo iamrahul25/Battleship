@@ -34,7 +34,7 @@ const OBSTACLE_HELP: { kind: ObstacleKind; name: string; text: string }[] = [
   { kind: 'rock', name: 'Rock', text: "Visible. Can't be fired at." },
   { kind: 'island', name: 'Island', text: "2–3 cells of land. Visible. Can't be fired at." },
   { kind: 'reef', name: 'Reef', text: 'Visible. A shot on a reef is a miss.' },
-  { kind: 'mine', name: 'Mine', text: 'Hidden from the enemy. Hit one and you skip your next turn.' },
+  { kind: 'mine', name: 'Mine', text: 'You lay your own while deploying. Hidden from the enemy; hit one and you skip your next turn.' },
 ];
 
 const POWER_UPS = POWER_UP_IDS.map((id) => WEAPONS[id]);
@@ -222,7 +222,7 @@ export function RulesGuide({ match }: { match?: MatchInfo }) {
       </Panel>
 
       <Panel title="Obstacles" style={styles.panel}>
-        <Text style={styles.p}>Bot games can scatter obstacles on both boards. Ships can&apos;t be placed on them.</Text>
+        <Text style={styles.p}>Bot games can scatter obstacles on both boards. Ships can&apos;t be placed on them. Mines are yours to position: drag them onto your grid with your ships to guard likely targets.</Text>
         {OBSTACLE_HELP.map((o) => (
           <View key={o.kind} style={styles.shipRow}>
             <SkiaIcon cacheKey={`help:obstacle:${o.kind}`} width={28} height={28} draw={(c) => drawObstacleIcon(c, o.kind, 28)} />

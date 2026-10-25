@@ -134,8 +134,8 @@ export class LocalGameController implements GameController {
     return this.emitter.subscribe(listener);
   }
 
-  placeFleet(ships: PlacedShip[]) {
-    this.dispatch({ type: 'PLACE_FLEET', player: HUMAN, ships });
+  placeFleet(ships: PlacedShip[], mines?: Coord[]) {
+    this.dispatch({ type: 'PLACE_FLEET', player: HUMAN, ships, mines });
   }
 
   ready() {

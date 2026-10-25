@@ -3,7 +3,7 @@ import { Redirect, router } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
-import { isFleetComplete, ONLINE_PLACEMENT_TIME_MS, type PlacedShip } from '@shared/engine';
+import { type Coord, isFleetComplete, mineCells, ONLINE_PLACEMENT_TIME_MS, type PlacedShip } from '@shared/engine';
 import { playSound } from '@/audio/SoundManager';
 import { PlayerCard } from '@/components/hud/PlayerCard';
 import { TurnTimer } from '@/components/hud/TurnTimer';
@@ -26,11 +26,13 @@ export default function Placement() {
   const reduced = useSettingsStore((s) => s.reducedMotion);
   const { width, height } = useWindowDimensions();
   const [ships, setShips] = useState<PlacedShip[]>([]);
+  const [mines, setMines] = useState<Coord[]>([]);
   const [submitted, setSubmitted] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
 
   const rules = controller?.rules;
   const obstacles = view?.myBoard.obstacles;
+  const mineCount = mineCells(obstacles).length;
   const contentW = Math.min(width - 32, 520);
   const gridSize = Math.max(240, Math.min(contentW, height - 340));
 
@@ -59,15 +61,19 @@ export default function Placement() {
 
   if (!controller || !rules) return <Redirect href="/home" />;
 
-  const complete = ships.length > 0 && isFleetComplete({ width: rules.grid.width, height: rules.grid.height, ships, shots: {} }, rules);
+  const complete =
+    ships.length > 0 &&
+    isFleetComplete({ width: rules.grid.width, height: rules.grid.height, ships, shots: {} }, rules) &&
+    mines.length === mineCount;
   const online = controller.kind === 'online';
+  const empty = ships.length === 0 && mines.length === 0;
 
   const ready = () => {
     if (!complete) return;
     playSound('ready');
     haptic('success');
     setSubmitted(true);
-    controller.placeFleet(ships);
+    controller.placeFleet(ships, mineCount > 0 ? mines : undefined);
     controller.ready();
   };
 
@@ -97,6 +103,9 @@ export default function Placement() {
           size={gridSize}
           ships={ships}
           onChange={setShips}
+          mines={mines}
+          mineCount={mineCount}
+          onMinesChange={setMines}
           disabled={submitted}
           reducedMotion={reduced}
         />
@@ -110,7 +119,9 @@ export default function Placement() {
           onPress={() => {
             playSound('rotate');
             haptic('light');
-            setShips(randomPlacement(rules, obstacles));
+            const layout = randomPlacement(rules, obstacles, mineCount);
+            setShips(layout.ships);
+            setMines(layout.mines);
           }}
           style={[styles.iconBtn, submitted && { opacity: 0.4 }]}
           testID="randomize"
@@ -121,12 +132,13 @@ export default function Placement() {
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Clear fleet"
-          disabled={submitted || ships.length === 0}
+          disabled={submitted || empty}
           onPress={() => {
             playSound('click');
             setShips([]);
+            setMines([]);
           }}
-          style={[styles.iconBtn, (submitted || ships.length === 0) && { opacity: 0.4 }]}
+          style={[styles.iconBtn, (submitted || empty) && { opacity: 0.4 }]}
         >
           <Ionicons name="trash-outline" size={22} color={colors.steel100} />
           <Text style={styles.iconLabel}>Clear</Text>

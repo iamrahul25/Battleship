@@ -26,6 +26,12 @@ describe('protocol schemas', () => {
     expect(placeFleetSchema.safeParse({ ships: [] }).success).toBe(false);
     expect(placeFleetSchema.safeParse({ ships: Array(25).fill({ defId: 'a', x: 0, y: 0, rotation: 0 }) }).success).toBe(false);
   });
+  it('place_fleet accepts optional mines', () => {
+    const ships = [{ defId: 'carrier', x: 0, y: 0, rotation: 0 }];
+    expect(placeFleetSchema.safeParse({ ships, mines: [{ x: 3, y: 4 }] }).success).toBe(true);
+    expect(placeFleetSchema.safeParse({ ships, mines: [{ x: -1, y: 4 }] }).success).toBe(false);
+    expect(placeFleetSchema.safeParse({ ships, mines: Array(21).fill({ x: 0, y: 0 }) }).success).toBe(false);
+  });
   it('use_weapon', () => {
     expect(useWeaponSchema.safeParse({ weaponId: 'artillery', x: 1, y: 1 }).success).toBe(true);
     expect(useWeaponSchema.safeParse({ weaponId: 'sonar', x: 1, y: 1, orientation: 'D' }).success).toBe(false);

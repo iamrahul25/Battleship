@@ -1,6 +1,6 @@
 import type { SkCanvas } from '@shopify/react-native-skia';
 import { type CellState, type Coord, key, type ObstacleKind, type PlacedShip } from '@shared/engine';
-import { paint, radial, record } from '@/art/draw';
+import { paint, radial, record, rrect } from '@/art/draw';
 import { drawObstacles } from '@/art/obstacles';
 import { drawShip } from '@/art/ships';
 import { colors } from '@/theme';
@@ -19,6 +19,16 @@ export interface BoardPictureOptions {
   /** Ships currently being placed: drawn with validity tint. */
   ghost?: { ship: PlacedShip; valid: boolean } | null;
   hiddenShipUid?: string | null;
+  /** Mine currently being placed: drawn with validity tint. */
+  mineGhost?: { coord: Coord; valid: boolean } | null;
+}
+
+function drawMineGhost(c: SkCanvas, { coord, valid }: { coord: Coord; valid: boolean }, s: number) {
+  drawObstacles(c, { [key(coord)]: 'mine' }, {}, s);
+  const col = valid ? colors.radarGreen : colors.signalRed;
+  const box = rrect(coord.x * s + s * 0.06, coord.y * s + s * 0.06, s * 0.88, s * 0.88, s * 0.2);
+  c.drawRRect(box, paint(col, { alpha: 0.28 }));
+  c.drawRRect(box, paint(col, { stroke: Math.max(1.5, s * 0.06) }));
 }
 
 function drawGrid(c: SkCanvas, cols: number, rows: number, s: number) {
@@ -76,6 +86,7 @@ export function boardPicture(board: BoardLike, s: number, opts: BoardPictureOpti
     }
 
     if (opts.ghost) drawShip(c, opts.ghost.ship, s, 0, 0, { tint: opts.ghost.valid ? 'valid' : 'invalid' });
+    if (opts.mineGhost) drawMineGhost(c, opts.mineGhost, s);
 
     for (const k of Object.keys(board.shots)) {
       const st = board.shots[k];

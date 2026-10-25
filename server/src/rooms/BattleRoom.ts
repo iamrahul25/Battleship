@@ -140,6 +140,7 @@ export class BattleRoom extends Room<{ state: BattleState }> {
               cells: [],
               hits: 0,
             })),
+            mines: msg.mines?.map((m) => ({ x: m.x, y: m.y })),
           },
           client,
         );

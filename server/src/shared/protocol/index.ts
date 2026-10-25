@@ -69,6 +69,7 @@ export const placeFleetSchema = z.object({
     .array(z.object({ defId: z.string().min(1).max(32), x: coordInt, y: coordInt, rotation: rotationSchema }))
     .min(1)
     .max(20),
+  mines: z.array(z.object({ x: coordInt, y: coordInt })).max(20).optional(),
 });
 export const readySchema = z.object({}).passthrough().optional();
 export const fireSchema = z.object({ x: coordInt, y: coordInt });

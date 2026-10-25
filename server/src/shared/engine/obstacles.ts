@@ -1,6 +1,6 @@
-import { allCells, key, neighbours4 } from './board';
+import { allCells, inBounds, key, neighbours4, parseKey, shipAt } from './board';
 import type { Rng } from './rng';
-import type { Board, Coord, ObstacleKind, ObstacleLevel, RuleSet } from './types';
+import type { Board, Coord, ObstacleKind, ObstacleLevel, PlacedShip, RuleSet } from './types';
 
 export const OBSTACLE_KINDS: ObstacleKind[] = ['rock', 'island', 'reef', 'mine'];
 
@@ -54,6 +54,63 @@ export function generateObstacles(rules: Pick<RuleSet, 'grid' | 'obstacles'>, rn
 /** Board fields for an obstacle map, omitted entirely when there are none. */
 export function obstacleFields(obstacles: Record<string, ObstacleKind> | undefined): Pick<Board, 'obstacles'> {
   return obstacles && Object.keys(obstacles).length ? { obstacles } : {};
+}
+
+/** Mine cells in an obstacle map. */
+export function mineCells(obstacles: Record<string, ObstacleKind> | undefined): Coord[] {
+  return Object.keys(obstacles ?? {})
+    .filter((k) => obstacles![k] === 'mine')
+    .map(parseKey);
+}
+
+/** The obstacle map without its mines (the fixed terrain). */
+export function terrainOnly(obstacles: Record<string, ObstacleKind> | undefined): Record<string, ObstacleKind> {
+  const out: Record<string, ObstacleKind> = {};
+  for (const [k, kind] of Object.entries(obstacles ?? {})) if (kind !== 'mine') out[k] = kind;
+  return out;
+}
+
+/** Terrain plus mines at the given cells. */
+export function withMines(obstacles: Record<string, ObstacleKind> | undefined, mines: Coord[]): Record<string, ObstacleKind> {
+  const out = terrainOnly(obstacles);
+  for (const c of mines) out[key(c)] = 'mine';
+  return out;
+}
+
+/** A mine may go on any in-bounds cell free of terrain, other obstacles and ships. */
+export function canPlaceMine(board: Pick<Board, 'width' | 'height' | 'obstacles' | 'ships'>, c: Coord): boolean {
+  return inBounds(board, c) && !board.obstacles?.[key(c)] && !shipAt(board.ships, c);
+}
+
+/**
+ * Moves a player's mines to `mines`, keeping the terrain. The count must match the mines
+ * the board already has. Ship overlap is checked when the fleet is validated.
+ */
+export function relocateMines(
+  board: Pick<Board, 'width' | 'height' | 'obstacles'>,
+  mines: Coord[],
+): Record<string, ObstacleKind> | null {
+  if (mines.length !== mineCells(board.obstacles).length) return null;
+  const terrain = terrainOnly(board.obstacles);
+  const seen = new Set<string>();
+  for (const c of mines) {
+    const k = key(c);
+    if (!inBounds(board, c) || terrain[k] || seen.has(k)) return null;
+    seen.add(k);
+  }
+  return withMines(terrain, mines);
+}
+
+/** `count` random mine cells clear of obstacles and ships. */
+export function randomMines(
+  board: Pick<Board, 'width' | 'height' | 'obstacles'> & { ships: PlacedShip[] },
+  count: number,
+  rng: Rng,
+): Coord[] {
+  const free = allCells(board).filter((c) => canPlaceMine(board, c));
+  const out: Coord[] = [];
+  for (let i = 0; i < count && free.length; i++) out.push(free.splice(rng.int(free.length), 1)[0]);
+  return out;
 }
 
 /** What the enemy may see: everything but untriggered mines (all of it once revealed). */

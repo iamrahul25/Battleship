@@ -125,7 +125,8 @@ export interface ShotEvent {
 }
 
 export type Action =
-  | { type: 'PLACE_FLEET'; player: PlayerIndex; ships: PlacedShip[] }
+  /** `mines` repositions the player's own mines; omitted keeps them where they are. */
+  | { type: 'PLACE_FLEET'; player: PlayerIndex; ships: PlacedShip[]; mines?: Coord[] }
   | { type: 'READY'; player: PlayerIndex }
   | { type: 'FIRE'; player: PlayerIndex; target: Coord }
   | { type: 'USE_WEAPON'; player: PlayerIndex; weaponId: string; target: Coord; orientation?: Orientation }

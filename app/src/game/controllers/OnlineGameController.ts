@@ -326,9 +326,10 @@ export class OnlineGameController implements GameController {
     return this.emitter.subscribe(listener);
   }
 
-  placeFleet(ships: PlacedShip[]) {
+  placeFleet(ships: PlacedShip[], mines?: Coord[]) {
     this.room.send(ClientMessage.PlaceFleet, {
       ships: ships.map((s) => ({ defId: s.defId, x: s.origin.x, y: s.origin.y, rotation: s.rotation })),
+      mines: mines?.map((m) => ({ x: m.x, y: m.y })),
     });
   }
 

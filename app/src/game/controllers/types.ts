@@ -48,7 +48,8 @@ export interface GameController {
   readonly difficulty?: Difficulty;
   getView(): PublicView | null;
   getMeta(): ControllerMeta;
-  placeFleet(ships: PlacedShip[]): void;
+  /** `mines` moves the player's own mines; omitted keeps the dealt positions. */
+  placeFleet(ships: PlacedShip[], mines?: Coord[]): void;
   ready(): void;
   fire(target: Coord): void;
   useWeapon(id: string, target: Coord, orientation?: Orientation): void;

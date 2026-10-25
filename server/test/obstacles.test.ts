@@ -14,6 +14,7 @@ import {
   key,
   legalTargets,
   makePlacedShip,
+  mineCells,
   neighbours4,
   type ObstacleKind,
   obstacleCounts,
@@ -22,8 +23,11 @@ import {
   placementError,
   type PlayerIndex,
   randomFleet,
+  randomMines,
   type RuleSet,
+  terrainOnly,
   validateFleet,
+  withMines,
 } from '../src/shared/engine';
 import { simulateGame } from '../scripts/simulate';
 import { must, rowFleet } from './helpers';
@@ -128,6 +132,58 @@ describe('placement around obstacles', () => {
     const moved = rowFleet(rules).map((sh) => makePlacedShip(rules.fleet.find((d) => d.id === sh.defId)!, Number(sh.uid.split('#')[1]), { x: 5, y: sh.origin.y }, 0));
     const placed = must(applyAction(s, { type: 'PLACE_FLEET', player: 0, ships: moved })).state;
     expect(placed.players[0].board.obstacles).toEqual({ '0,0': 'rock' });
+  });
+});
+
+describe('player-placed mines', () => {
+  const rules = createRules();
+  const shifted = () =>
+    rowFleet(rules).map((sh) => makePlacedShip(rules.fleet.find((d) => d.id === sh.defId)!, Number(sh.uid.split('#')[1]), { x: 5, y: sh.origin.y }, 0));
+  const withObstacles = (obstacles: Record<string, ObstacleKind>) => {
+    const s = createGame(rules, 1);
+    return { ...s, players: [{ ...s.players[0], board: { ...s.players[0].board, obstacles } }, s.players[1]] as typeof s.players };
+  };
+
+  it('PLACE_FLEET moves the mines and keeps the terrain', () => {
+    const s = withObstacles({ '0,0': 'rock', '9,9': 'mine', '9,8': 'mine' });
+    const placed = must(applyAction(s, { type: 'PLACE_FLEET', player: 0, ships: shifted(), mines: [{ x: 1, y: 1 }, { x: 2, y: 9 }] })).state;
+    expect(placed.players[0].board.obstacles).toEqual({ '0,0': 'rock', '1,1': 'mine', '2,9': 'mine' });
+  });
+
+  it('rejects mines that change the count, repeat, leave the grid, or sit on terrain or ships', () => {
+    const s = withObstacles({ '0,0': 'rock', '9,9': 'mine', '9,8': 'mine' });
+    const place = (mines: { x: number; y: number }[]) => applyAction(s, { type: 'PLACE_FLEET', player: 0, ships: shifted(), mines }).error;
+    expect(place([{ x: 1, y: 1 }])).toBe('INVALID_PLACEMENT');
+    expect(place([{ x: 1, y: 1 }, { x: 2, y: 2 }, { x: 3, y: 3 }])).toBe('INVALID_PLACEMENT');
+    expect(place([{ x: 1, y: 1 }, { x: 1, y: 1 }])).toBe('INVALID_PLACEMENT');
+    expect(place([{ x: 1, y: 1 }, { x: 10, y: 1 }])).toBe('INVALID_PLACEMENT');
+    expect(place([{ x: 1, y: 1 }, { x: 0, y: 0 }])).toBe('INVALID_PLACEMENT');
+    expect(place([{ x: 1, y: 1 }, { x: 5, y: 0 }])).toBe('INVALID_PLACEMENT');
+  });
+
+  it('omitting mines keeps the dealt positions', () => {
+    const s = withObstacles({ '9,9': 'mine' });
+    const placed = must(applyAction(s, { type: 'PLACE_FLEET', player: 0, ships: shifted() })).state;
+    expect(placed.players[0].board.obstacles).toEqual({ '9,9': 'mine' });
+  });
+
+  it('random mines never land on terrain, ships or each other', () => {
+    for (let seed = 0; seed < 30; seed++) {
+      const r = createRules({ obstacles: 'many' });
+      const obs = generateObstacles(r, createRng(seed));
+      const terrain = terrainOnly(obs);
+      const ships = randomFleet(r, createRng(seed + 1), { obstacles: terrain });
+      const count = mineCells(obs).length;
+      const mines = randomMines({ ...createBoard(r.grid.width, r.grid.height), obstacles: terrain, ships }, count, createRng(seed + 2));
+      expect(mines).toHaveLength(count);
+      expect(new Set(mines.map(key)).size).toBe(count);
+      for (const m of mines) {
+        expect(terrain[key(m)]).toBeUndefined();
+        expect(ships.some((sh) => sh.cells.some((c) => c.x === m.x && c.y === m.y))).toBe(false);
+      }
+      const input = ships.map((sh) => ({ defId: sh.defId, origin: sh.origin, rotation: sh.rotation }));
+      expect(validateFleet(r, input, withMines(terrain, mines)).ok).toBe(true);
+    }
   });
 });
 

@@ -14,7 +14,7 @@ import {
   shipAt,
 } from './board';
 import { CHARGE, MAX_CONSECUTIVE_TIMEOUTS } from './config';
-import { generateObstacles, obstacleFields, visibleObstacles } from './obstacles';
+import { generateObstacles, obstacleFields, relocateMines, visibleObstacles } from './obstacles';
 import { isFleetComplete, randomFleet, validateFleet } from './placement';
 import { createRng, type Rng } from './rng';
 import type {
@@ -70,10 +70,10 @@ export function createGame(rules: RuleSet, seed: number): GameState {
   };
 }
 
-/** Fresh board for a validated fleet, keeping the player's obstacles. */
-function fleetBoard(state: GameState, player: PlayerIndex, ships: PlacedShip[]): Board {
+/** Fresh board for a validated fleet, keeping the player's obstacles unless new ones are given. */
+function fleetBoard(state: GameState, player: PlayerIndex, ships: PlacedShip[], obstacles = state.players[player].board.obstacles): Board {
   const { width, height } = state.rules.grid;
-  return { ...createBoard(width, height), ...obstacleFields(state.players[player].board.obstacles), ships };
+  return { ...createBoard(width, height), ...obstacleFields(obstacles), ships };
 }
 
 /** Mutable working copy used inside a single reducer call. */
@@ -201,14 +201,16 @@ export function applyAction(state: GameState, action: Action): ActionResult {
       if (state.phase !== 'placement') return fail(state, 'WRONG_PHASE');
       const p = state.players[action.player];
       if (p.ready) return fail(state, 'ALREADY_READY');
+      const obstacles = action.mines ? relocateMines(p.board, action.mines) : p.board.obstacles;
+      if (obstacles === null) return fail(state, 'INVALID_PLACEMENT');
       const v = validateFleet(
         state.rules,
         action.ships.map((s) => ({ defId: s.defId, origin: s.origin, rotation: s.rotation })),
-        p.board.obstacles,
+        obstacles,
       );
       if (!v.ok) return fail(state, 'INVALID_PLACEMENT');
       const d = startDraft(state);
-      setPlayer(d, action.player, { board: fleetBoard(state, action.player, v.ships) });
+      setPlayer(d, action.player, { board: fleetBoard(state, action.player, v.ships, obstacles) });
       d.events.push({ type: 'fleetPlaced', player: action.player });
       return finishDraft(d);
     }

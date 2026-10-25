@@ -1,11 +1,12 @@
 import { Canvas, Picture } from '@shopify/react-native-skia';
-import { type ComponentRef, useCallback, useMemo, useRef, useState } from 'react';
+import { type ComponentRef, type ReactNode, useCallback, useMemo, useRef, useState } from 'react';
 import { type LayoutChangeEvent, StyleSheet, Text, View } from 'react-native';
 import { GestureDetector, useCompetingGestures, usePanGesture, useTapGesture } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, useSharedValue, withSequence, withSpring, withTiming } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 import {
   canPlace,
+  canPlaceMine,
   type Coord,
   createBoard,
   createRng,
@@ -16,15 +17,20 @@ import {
   obstacleFields,
   type PlacedShip,
   randomFleet,
+  randomMines,
   randomSeed,
   type Rotation,
   type RuleSet,
+  sameCoord,
   shapeCells,
   shapeSize,
   shipAt,
   type ShipDef,
+  terrainOnly,
   uniqueRotations,
+  withMines,
 } from '@shared/engine';
+import { drawObstacleIcon } from '@/art/obstacles';
 import { drawShipShape, shipIconSize } from '@/art/ships';
 import { SkiaIcon } from '@/art/SkiaIcon';
 import { playSound } from '@/audio/SoundManager';
@@ -36,27 +42,36 @@ import { Water } from '../grid/Water';
 
 interface Props {
   rules: RuleSet;
-  /** This player's obstacles; ships can't be placed on them. */
+  /** This player's obstacles; ships can't be placed on them. Mines in here are ignored in favour of `mines`. */
   obstacles?: Record<string, ObstacleKind>;
   size: number;
   ships: PlacedShip[];
   onChange: (ships: PlacedShip[]) => void;
+  /** Mines placed on the grid so far. */
+  mines: Coord[];
+  /** How many mines this player must lay. */
+  mineCount: number;
+  onMinesChange: (mines: Coord[]) => void;
   disabled?: boolean;
   reducedMotion?: boolean;
 }
 
-interface DragState {
+interface DragBase {
   uid: string;
-  def: ShipDef;
-  index: number;
-  rotation: Rotation;
-  /** Pointer offset inside the ship, in px. */
+  /** Pointer offset inside the dragged item, in px. */
   grabX: number;
   grabY: number;
-  /** Where the ship returns to on an invalid drop (root coords). */
+  /** Where the item returns to on an invalid drop (root coords). */
   homeX: number;
   homeY: number;
 }
+
+type DragItem =
+  | { kind: 'ship'; def: ShipDef; index: number; rotation: Rotation }
+  /** `from` is the mine's grid cell, or null when it comes from the dock. */
+  | { kind: 'mine'; from: Coord | null };
+
+type DragState = DragBase & DragItem;
 
 const DOCK_SCALE = 0.72;
 
@@ -67,7 +82,21 @@ const shapeSignature = (def: ShipDef, r: Rotation) =>
     .join('|');
 const sameShape = (def: ShipDef, a: Rotation, b: Rotation) => shapeSignature(def, a) === shapeSignature(def, b);
 
-export function PlacementEditor({ rules, obstacles, size, ships, onChange, disabled, reducedMotion }: Props) {
+const dragSize = (d: DragState) => (d.kind === 'ship' ? shapeSize(d.def, d.rotation) : { width: 1, height: 1 });
+const minesWithout = (mines: Coord[], from: Coord | null) => (from ? mines.filter((m) => !sameCoord(m, from)) : mines);
+
+export function PlacementEditor({
+  rules,
+  obstacles,
+  size,
+  ships,
+  onChange,
+  mines,
+  mineCount,
+  onMinesChange,
+  disabled,
+  reducedMotion,
+}: Props) {
   const { cell: s, gutter, gridW, gridH } = gridGeometry(size, rules.grid.width, rules.grid.height, true);
   const labelSize = labelFontSize(s, gutter, rules.grid.height, 12);
   const [rootW, setRootW] = useState(size);
@@ -95,18 +124,30 @@ export function PlacementEditor({ rules, obstacles, size, ships, onChange, disab
   const dockMinHeight = 26 + 2 * (dockRowCells * s * DOCK_SCALE + 18) + 12;
   const placedUids = new Set(ships.map((sh) => sh.uid));
   const unplaced = instances.filter((i) => !placedUids.has(i.uid));
+  const dockMines = Array.from({ length: Math.max(0, mineCount - mines.length) }, (_, i) => `mine#${i}`);
 
+  const terrain = useMemo(() => terrainOnly(obstacles), [obstacles]);
   const board = useMemo(
-    () => ({ ...createBoard(rules.grid.width, rules.grid.height), ...obstacleFields(obstacles), ships }),
-    [rules, obstacles, ships],
+    () => ({ ...createBoard(rules.grid.width, rules.grid.height), ...obstacleFields(withMines(terrain, mines)), ships }),
+    [rules, terrain, mines, ships],
+  );
+  const draggedMine = drag?.kind === 'mine' ? drag.from : null;
+  const shownBoard = useMemo(
+    () => (draggedMine ? { ...board, ...obstacleFields(withMines(terrain, minesWithout(mines, draggedMine))) } : board),
+    [board, terrain, mines, draggedMine],
   );
   const ghost = useMemo(() => {
-    if (!drag || !hover) return null;
+    if (drag?.kind !== 'ship' || !hover) return null;
     return { ship: makePlacedShip(drag.def, drag.index, hover.origin, drag.rotation), valid: hover.valid };
   }, [drag, hover]);
+  const mineGhost = useMemo(
+    () => (drag?.kind === 'mine' && hover ? { coord: hover.origin, valid: hover.valid } : null),
+    [drag, hover],
+  );
+  const hiddenShipUid = drag?.kind === 'ship' ? drag.uid : null;
   const picture = useMemo(
-    () => boardPicture(board, s, { ghost, hiddenShipUid: drag?.uid ?? null }),
-    [board, s, ghost, drag?.uid],
+    () => boardPicture(shownBoard, s, { ghost, mineGhost, hiddenShipUid }),
+    [shownBoard, s, ghost, mineGhost, hiddenShipUid],
   );
 
   const doShake = useCallback(() => {
@@ -122,11 +163,15 @@ export function PlacementEditor({ rules, obstacles, size, ships, onChange, disab
 
   const evaluate = (d: DragState, px: number, py: number) => {
     const origin = originFor(d, px, py);
-    const others = { ...board, ships: ships.filter((sh) => sh.uid !== d.uid) };
-    const { width, height } = shapeSize(d.def, d.rotation);
+    const { width, height } = dragSize(d);
     const nearGrid =
       origin.x > -width && origin.y > -height && origin.x < rules.grid.width && origin.y < rules.grid.height;
     if (!nearGrid) return null;
+    if (d.kind === 'mine') {
+      const others = { ...board, ...obstacleFields(withMines(terrain, minesWithout(mines, d.from))) };
+      return { origin, valid: canPlaceMine(others, origin) };
+    }
+    const others = { ...board, ships: ships.filter((sh) => sh.uid !== d.uid) };
     return { origin, valid: canPlace(others, d.def, origin, d.rotation, rules, d.uid) };
   };
 
@@ -153,7 +198,8 @@ export function PlacementEditor({ rules, obstacles, size, ships, onChange, disab
 
   const commit = (d: DragState, origin: Coord | null) => {
     if (origin) {
-      onChange([...ships.filter((sh) => sh.uid !== d.uid), makePlacedShip(d.def, d.index, origin, d.rotation)]);
+      if (d.kind === 'ship') onChange([...ships.filter((sh) => sh.uid !== d.uid), makePlacedShip(d.def, d.index, origin, d.rotation)]);
+      else onMinesChange([...minesWithout(mines, d.from), origin]);
     }
     setDrag(null);
     setHover(null);
@@ -219,7 +265,15 @@ export function PlacementEditor({ rules, obstacles, size, ships, onChange, disab
     doShake();
   };
 
-  // ---- Grid gestures (ships drawn inside the canvas) ----
+  const autoPlaceMine = () => {
+    if (disabled) return;
+    const [spot] = randomMines(board, 1, createRng(randomSeed()));
+    if (!spot) return doShake();
+    playSound('drop');
+    onMinesChange([...mines, spot]);
+  };
+
+  // ---- Grid gestures (ships and mines drawn inside the canvas) ----
   const cellFromLocal = (x: number, y: number): Coord | null => {
     const c = { x: Math.floor(x / s), y: Math.floor(y / s) };
     return inBounds(board, c) ? c : null;
@@ -235,22 +289,44 @@ export function PlacementEditor({ rules, obstacles, size, ships, onChange, disab
     onActivate: (e) => {
       const { x: sx, y: sy } = gridStart.current;
       const c = cellFromLocal(sx, sy);
-      const ship = c ? shipAt(ships, c) : undefined;
+      if (!c) return;
+      const mine = mines.find((m) => sameCoord(m, c));
+      if (mine) {
+        startDrag(
+          {
+            kind: 'mine',
+            uid: `mine@${mine.x},${mine.y}`,
+            from: mine,
+            grabX: sx - mine.x * s,
+            grabY: sy - mine.y * s,
+            homeX: gridX + mine.x * s,
+            homeY: gridY + mine.y * s,
+          },
+          gridX + e.x,
+          gridY + e.y,
+        );
+        return;
+      }
+      const ship = shipAt(ships, c);
       const inst = ship && instances.find((i) => i.uid === ship.uid);
       if (!ship || !inst) return;
       const minX = Math.min(...ship.cells.map((cc) => cc.x));
       const minY = Math.min(...ship.cells.map((cc) => cc.y));
-      const d: DragState = {
-        uid: ship.uid,
-        def: inst.def,
-        index: inst.index,
-        rotation: ship.rotation,
-        grabX: sx - minX * s,
-        grabY: sy - minY * s,
-        homeX: gridX + minX * s,
-        homeY: gridY + minY * s,
-      };
-      startDrag(d, gridX + e.x, gridY + e.y);
+      startDrag(
+        {
+          kind: 'ship',
+          uid: ship.uid,
+          def: inst.def,
+          index: inst.index,
+          rotation: ship.rotation,
+          grabX: sx - minX * s,
+          grabY: sy - minY * s,
+          homeX: gridX + minX * s,
+          homeY: gridY + minY * s,
+        },
+        gridX + e.x,
+        gridY + e.y,
+      );
     },
     onUpdate: (e) => moveDrag(gridX + e.x, gridY + e.y),
     onDeactivate: (e) => endDrag(gridX + e.x, gridY + e.y),
@@ -272,8 +348,37 @@ export function PlacementEditor({ rules, obstacles, size, ships, onChange, disab
   }));
   const gridStyle = useAnimatedStyle(() => ({ transform: [{ translateX: shake.value }] }));
 
-  const floatW = drag ? shapeSize(drag.def, drag.rotation).width * s : 0;
-  const floatH = drag ? shapeSize(drag.def, drag.rotation).height * s : 0;
+  const floatW = drag ? dragSize(drag).width * s : 0;
+  const floatH = drag ? dragSize(drag).height * s : 0;
+
+  /** Starts a drag from a dock item; `local` is the press point inside it, `abs` the same point in window coords. */
+  const dockStart = (uid: string, item: DragItem, local: Coord, abs: Coord) => {
+    const o = rootOrigin.current;
+    startDrag(
+      {
+        ...item,
+        uid,
+        grabX: local.x / DOCK_SCALE,
+        grabY: local.y / DOCK_SCALE,
+        homeX: abs.x - local.x - o.x,
+        homeY: abs.y - local.y - o.y,
+      },
+      abs.x - o.x,
+      abs.y - o.y,
+    );
+  };
+  const dockMove = (ax: number, ay: number) => moveDrag(ax - rootOrigin.current.x, ay - rootOrigin.current.y);
+  const dockEnd = (ax: number, ay: number) => endDrag(ax - rootOrigin.current.x, ay - rootOrigin.current.y);
+
+  const allPlaced = unplaced.length === 0 && dockMines.length === 0;
+  const hint = allPlaced
+    ? mineCount > 0
+      ? 'All set. Tap a ship to rotate, drag ships or mines to move.'
+      : 'Fleet deployed. Tap a ship to rotate, drag to move.'
+    : mineCount > 0
+      ? 'Drag ships and mines onto the grid · tap to auto-place'
+      : 'Drag ships onto the grid · tap to auto-place';
+  const dockUnit = s * DOCK_SCALE;
 
   return (
     <View
@@ -310,62 +415,81 @@ export function PlacementEditor({ rules, obstacles, size, ships, onChange, disab
       </Animated.View>
 
       <View style={[styles.dock, { minHeight: dockMinHeight }]}>
-        {unplaced.length === 0 ? (
-          <Text style={[text.caption, styles.dockHint]}>Fleet deployed. Tap a ship to rotate, drag to move.</Text>
-        ) : (
-          <Text style={[text.caption, styles.dockHint]}>Drag ships onto the grid · tap to auto-place</Text>
-        )}
+        <Text style={[text.caption, styles.dockHint]}>{hint}</Text>
         <View style={styles.dockItems}>
-          {unplaced.map((inst) => (
-            <DockShip
-              key={inst.uid}
-              def={inst.def}
-              s={s}
-              hidden={drag?.uid === inst.uid}
+          {unplaced.map((inst) => {
+            const len = inst.def.cells.length;
+            const cells = shapeCells(inst.def, 0);
+            const { width: w, height: h } = shipIconSize(cells, dockUnit);
+            return (
+              <DockItem
+                key={inst.uid}
+                label={`${inst.def.name} · ${len}`}
+                accessibilityLabel={`${inst.def.name}, ${len} cells`}
+                hidden={drag?.uid === inst.uid}
+                disabled={disabled}
+                onBegin={measureRoot}
+                onTap={() => autoPlace(inst.uid)}
+                onStart={(local, abs) =>
+                  dockStart(inst.uid, { kind: 'ship', def: inst.def, index: inst.index, rotation: 0 }, local, abs)
+                }
+                onMove={dockMove}
+                onEnd={dockEnd}
+              >
+                <SkiaIcon
+                  cacheKey={`dock:${inst.def.id}:${len}:${Math.round(dockUnit)}`}
+                  width={w}
+                  height={h}
+                  draw={(c) => drawShipShape(c, inst.def.id, cells, 0, dockUnit)}
+                />
+              </DockItem>
+            );
+          })}
+          {dockMines.map((uid) => (
+            <DockItem
+              key={uid}
+              label="Mine"
+              accessibilityLabel="Mine"
+              hidden={drag?.uid === uid}
               disabled={disabled}
               onBegin={measureRoot}
-              onTap={() => autoPlace(inst.uid)}
-              onStart={(local, abs) => {
-                const o = rootOrigin.current;
-                startDrag(
-                  {
-                    uid: inst.uid,
-                    def: inst.def,
-                    index: inst.index,
-                    rotation: 0,
-                    grabX: local.x / DOCK_SCALE,
-                    grabY: local.y / DOCK_SCALE,
-                    homeX: abs.x - local.x - o.x,
-                    homeY: abs.y - local.y - o.y,
-                  },
-                  abs.x - o.x,
-                  abs.y - o.y,
-                );
-              }}
-              onMove={(ax, ay) => moveDrag(ax - rootOrigin.current.x, ay - rootOrigin.current.y)}
-              onEnd={(ax, ay) => endDrag(ax - rootOrigin.current.x, ay - rootOrigin.current.y)}
-            />
+              onTap={autoPlaceMine}
+              onStart={(local, abs) => dockStart(uid, { kind: 'mine', from: null }, local, abs)}
+              onMove={dockMove}
+              onEnd={dockEnd}
+            >
+              <SkiaIcon
+                cacheKey={`dock:mine:${Math.round(dockUnit)}`}
+                width={dockUnit}
+                height={dockUnit}
+                draw={(c) => drawObstacleIcon(c, 'mine', dockUnit)}
+              />
+            </DockItem>
           ))}
         </View>
       </View>
 
       {drag && (
         <Animated.View pointerEvents="none" style={[styles.floating, { width: floatW, height: floatH }, floatStyle]}>
-          <SkiaIcon
-            cacheKey={`float:${drag.def.id}:${drag.def.cells.length}:${drag.rotation}:${Math.round(s)}`}
-            width={floatW}
-            height={floatH}
-            draw={(c) => drawShipShape(c, drag.def.id, shapeCells(drag.def, drag.rotation), drag.rotation, s)}
-          />
+          {drag.kind === 'ship' ? (
+            <SkiaIcon
+              cacheKey={`float:${drag.def.id}:${drag.def.cells.length}:${drag.rotation}:${Math.round(s)}`}
+              width={floatW}
+              height={floatH}
+              draw={(c) => drawShipShape(c, drag.def.id, shapeCells(drag.def, drag.rotation), drag.rotation, s)}
+            />
+          ) : (
+            <SkiaIcon cacheKey={`float:mine:${Math.round(s)}`} width={s} height={s} draw={(c) => drawObstacleIcon(c, 'mine', s)} />
+          )}
         </Animated.View>
       )}
     </View>
   );
 }
 
-function DockShip({
-  def,
-  s,
+function DockItem({
+  label,
+  accessibilityLabel,
   hidden,
   disabled,
   onBegin,
@@ -373,23 +497,21 @@ function DockShip({
   onStart,
   onMove,
   onEnd,
+  children,
 }: {
-  def: ShipDef;
-  s: number;
+  label: string;
+  accessibilityLabel: string;
   hidden: boolean;
   disabled?: boolean;
   onBegin: () => void;
   onTap: () => void;
-  /** `local` is the press point inside the dock ship; `abs` is the same point in window coordinates. */
+  /** `local` is the press point inside the dock item; `abs` is the same point in window coordinates. */
   onStart: (local: Coord, abs: Coord) => void;
   onMove: (absX: number, absY: number) => void;
   onEnd: (absX: number, absY: number) => void;
+  children: ReactNode;
 }) {
   const start = useRef({ local: { x: 0, y: 0 }, abs: { x: 0, y: 0 } });
-  const len = def.cells.length;
-  const unit = s * DOCK_SCALE;
-  const cells = shapeCells(def, 0);
-  const { width: w, height: h } = shipIconSize(cells, unit);
   const pan = usePanGesture({
     enabled: !disabled,
     minDistance: 4,
@@ -406,22 +528,21 @@ function DockShip({
   const gesture = useCompetingGestures(pan, tap);
   return (
     <GestureDetector gesture={gesture}>
-      <View
-        style={[styles.dockShip, { opacity: hidden ? 0.15 : 1 }]}
-        accessibilityRole="button"
-        accessibilityLabel={`${def.name}, ${len} cells`}
-      >
-        <SkiaIcon cacheKey={`dock:${def.id}:${len}:${Math.round(unit)}`} width={w} height={h} draw={(c) => drawShipShape(c, def.id, cells, 0, unit)} />
-        <Text style={styles.dockLabel}>
-          {def.name} · {len}
-        </Text>
+      <View style={[styles.dockShip, { opacity: hidden ? 0.15 : 1 }]} accessibilityRole="button" accessibilityLabel={accessibilityLabel}>
+        {children}
+        <Text style={styles.dockLabel}>{label}</Text>
       </View>
     </GestureDetector>
   );
 }
 
-export function randomPlacement(rules: RuleSet, obstacles?: Record<string, ObstacleKind>) {
-  return randomFleet(rules, createRng(randomSeed()), { obstacles });
+/** Random fleet around the terrain, then `mineCount` mines in the remaining open water. */
+export function randomPlacement(rules: RuleSet, obstacles?: Record<string, ObstacleKind>, mineCount = 0) {
+  const rng = createRng(randomSeed());
+  const terrain = terrainOnly(obstacles);
+  const ships = randomFleet(rules, rng, { obstacles: terrain });
+  const mines = randomMines({ ...createBoard(rules.grid.width, rules.grid.height), obstacles: terrain, ships }, mineCount, rng);
+  return { ships, mines };
 }
 
 const styles = StyleSheet.create({
