@@ -5,7 +5,7 @@ import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-na
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { playSound, SoundManager } from '@/audio/SoundManager';
 import { Logo } from '@/components/art/Logo';
-import { SeaBackground } from '@/components/art/Scenes';
+import { SeaBackground, seaShipCell } from '@/components/art/Scenes';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { LocalGameController, type SavedLocalGame } from '@/game/controllers/LocalGameController';
@@ -16,6 +16,8 @@ import { useProfileStore } from '@/stores/profile';
 import { useSettingsStore } from '@/stores/settings';
 import { useStatsStore } from '@/stores/stats';
 import { colors, fonts, text } from '@/theme';
+
+const LOGO_MIN_H = 120;
 
 function NavTile({ icon, label, onPress }: { icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void }) {
   return (
@@ -41,6 +43,12 @@ export default function Home() {
   const wins = useStatsStore((s) => s.total.won);
   const reduced = useSettingsStore((s) => s.reducedMotion);
   const [saved, setSaved] = useState<SavedLocalGame | null>(null);
+  const [hero, setHero] = useState<{ y: number; h: number }>();
+  const [logoH, setLogoH] = useState(0);
+  const shipSlot = seaShipCell(width) * 1.6;
+  // onLayout on web only fires on size changes, so positions are derived from the hero's size rather than measured.
+  const logoBottom = hero ? (Math.max(LOGO_MIN_H, hero.h - shipSlot) + logoH) / 2 : 0;
+  const shipCenterY = hero ? hero.y + (logoBottom + hero.h) / 2 : undefined;
 
   useFocusEffect(
     useCallback(() => {
@@ -59,7 +67,12 @@ export default function Home() {
 
   return (
     <View style={styles.root}>
-      <SeaBackground width={width} height={height} animate={!reduced} />
+      <SeaBackground
+        width={width}
+        height={height}
+        animate={!reduced}
+        shipCenterY={shipCenterY}
+      />
       <View style={[styles.content, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 16 }]}>
         <Pressable style={styles.profileChip} onPress={() => router.push('/profile')} accessibilityRole="button" accessibilityLabel="Profile">
           <Avatar id={avatarId} size={40} />
@@ -69,8 +82,13 @@ export default function Home() {
           </View>
         </Pressable>
 
-        <View style={styles.logo}>
-          <Logo size={Math.min(50, width / 8)} animate={!reduced} />
+        <View style={styles.hero} onLayout={(e) => setHero({ y: e.nativeEvent.layout.y, h: e.nativeEvent.layout.height })}>
+          <View style={styles.logo}>
+            <View onLayout={(e) => setLogoH(e.nativeEvent.layout.height)}>
+              <Logo size={Math.min(50, width / 8)} animate={!reduced} />
+            </View>
+          </View>
+          <View style={{ height: shipSlot }} />
         </View>
 
         <View style={styles.menu}>
@@ -145,7 +163,8 @@ const styles = StyleSheet.create({
   },
   chipName: { fontFamily: fonts.heading, color: colors.steel100, fontSize: 15 },
   chipRank: { ...text.label, fontSize: 10, color: colors.brass },
-  logo: { flex: 1, justifyContent: 'center', minHeight: 120 },
+  hero: { flex: 1 },
+  logo: { flex: 1, justifyContent: 'center', minHeight: LOGO_MIN_H },
   menu: { gap: 12 },
   resumeRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   discard: { padding: 12 },

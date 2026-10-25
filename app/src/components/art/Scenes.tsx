@@ -8,15 +8,29 @@ import { useImageGraphics } from '@/art/spriteSet';
 import { colors } from '@/theme';
 import { Water } from '../grid/Water';
 
-/** Full-bleed animated sea with a battleship sailing in (Home / Splash). */
-export function SeaBackground({ width, height, animate = true, ship = true }: { width: number; height: number; animate?: boolean; ship?: boolean }) {
+export const seaShipCell = (width: number) => Math.min(46, width / 9);
+
+/** Full-bleed animated sea with a battleship sailing in (Home / Splash). `shipCenterY` defaults to mid-screen. */
+export function SeaBackground({
+  width,
+  height,
+  animate = true,
+  ship = true,
+  shipCenterY,
+}: {
+  width: number;
+  height: number;
+  animate?: boolean;
+  ship?: boolean;
+  shipCenterY?: number;
+}) {
   const clock = useClock();
   const sail = useSharedValue(animate ? 0 : 1);
   useEffect(() => {
     if (animate) sail.value = withTiming(1, { duration: 1400, easing: Easing.out(Easing.cubic) });
   }, [animate, sail]);
 
-  const cell = Math.min(46, width / 9);
+  const cell = seaShipCell(width);
   const len = 4;
   const imageGraphics = useImageGraphics();
   const shipPic = useMemo(
@@ -36,7 +50,7 @@ export function SeaBackground({ width, height, animate = true, ship = true }: { 
       }),
     [cell, width],
   );
-  const shipY = height * 0.5;
+  const shipY = (shipCenterY ?? height * 0.5) - cell / 2;
   const targetX = width / 2 - (len * cell) / 2;
   const transform = useDerivedValue(() => {
     const t = animate ? clock.value / 1000 : 0;

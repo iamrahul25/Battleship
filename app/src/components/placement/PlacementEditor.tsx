@@ -2,7 +2,7 @@ import { Canvas, Picture } from '@shopify/react-native-skia';
 import { type ComponentRef, type ReactNode, useCallback, useMemo, useRef, useState } from 'react';
 import { type LayoutChangeEvent, StyleSheet, Text, View } from 'react-native';
 import { GestureDetector, useCompetingGestures, usePanGesture, useTapGesture } from 'react-native-gesture-handler';
-import Animated, { useAnimatedStyle, useSharedValue, withSequence, withSpring, withTiming } from 'react-native-reanimated';
+import Animated, { Easing, useAnimatedStyle, useSharedValue, withSequence, withSpring, withTiming } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 import {
   canPlace,
@@ -223,8 +223,9 @@ export function PlacementEditor({
       fy.set(withTiming(ty, { duration: 110 }, () => scheduleOnRN(commit, d, res.origin)));
     } else {
       doShake();
-      fx.set(withSpring(d.homeX, { damping: 18 }));
-      fy.set(withSpring(d.homeY, { damping: 18 }, () => scheduleOnRN(commit, d, null)));
+      const back = { duration: 180, easing: Easing.out(Easing.cubic) };
+      fx.set(withTiming(d.homeX, back));
+      fy.set(withTiming(d.homeY, back, () => scheduleOnRN(commit, d, null)));
     }
   };
 
