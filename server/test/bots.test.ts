@@ -118,7 +118,7 @@ describe('bot decisions', () => {
       s = must(
         a.type === 'FIRE'
           ? applyAction(s, { type: 'FIRE', player: p, target: a.target })
-          : applyAction(s, { type: 'USE_WEAPON', player: p, weaponId: a.weaponId, target: a.target, orientation: a.orientation }),
+          : applyAction(s, { type: 'USE_WEAPON', player: p, weaponId: a.weaponId, target: a.target }),
       ).state;
     }
     expect(s.phase).toBe('finished');

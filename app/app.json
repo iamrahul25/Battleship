@@ -1,8 +1,8 @@
 {
   "expo": {
-    "version": "1.0.2",
+    "version": "1.0.3",
     "android": {
-      "versionCode": 3
+      "versionCode": 4
     }
   }
 }

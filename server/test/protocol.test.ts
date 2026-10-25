@@ -34,7 +34,7 @@ describe('protocol schemas', () => {
   });
   it('use_weapon', () => {
     expect(useWeaponSchema.safeParse({ weaponId: 'artillery', x: 1, y: 1 }).success).toBe(true);
-    expect(useWeaponSchema.safeParse({ weaponId: 'sonar', x: 1, y: 1, orientation: 'D' }).success).toBe(false);
+    expect(useWeaponSchema.safeParse({ weaponId: 'sonar', x: -1, y: 1 }).success).toBe(false);
   });
   it('emote ids are a fixed set', () => {
     expect(emoteSchema.safeParse({ id: 'gg' }).success).toBe(true);

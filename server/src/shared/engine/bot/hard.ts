@@ -2,6 +2,7 @@ import { allCells, cellAt, inBounds, key, neighbours8 } from '../board';
 import { shapeCells, shapeSize, uniqueRotations } from '../placement';
 import type { Rng } from '../rng';
 import type { CellState, Coord, ShipDef } from '../types';
+import { getWeapon, weaponMaxUses } from '../weapons';
 import {
   affordable,
   bestCenter,
@@ -116,7 +117,7 @@ export function hardChoose(view: BotView, rng: Rng): BotAction {
   if (airstrike) {
     const option = bestCenter(view, airstrike, at, centers);
     if (option && option.value >= AIRSTRIKE_THRESHOLD * bestValue) {
-      return { type: 'USE_WEAPON', weaponId: 'airstrike', target: option.center, orientation: option.orientation };
+      return { type: 'USE_WEAPON', weaponId: 'airstrike', target: option.center };
     }
   }
 
@@ -136,7 +137,7 @@ export function hardChoose(view: BotView, rng: Rng): BotAction {
         if (!pick || pHit > pick.pHit) pick = { option, pHit };
       }
       if (pick && pick.pHit >= TORPEDO_MIN_HIT && pBest < 0.5) {
-        return { type: 'USE_WEAPON', weaponId: 'torpedo', target: pick.option.launch, orientation: pick.option.orientation };
+        return { type: 'USE_WEAPON', weaponId: 'torpedo', target: pick.option.drop };
       }
     }
     if (barrage && unknown.length) {
@@ -146,7 +147,7 @@ export function hardChoose(view: BotView, rng: Rng): BotAction {
   }
 
   const sonar = affordable(view, 'sonar');
-  const artilleryExhausted = (view.weaponUses.artillery ?? 0) >= 2;
+  const artilleryExhausted = (view.weaponUses.artillery ?? 0) >= (weaponMaxUses(getWeapon('artillery')!, view.rules) ?? Infinity);
   if (sonar && artilleryExhausted && unresolvedHits(t).length === 0 && sonarHotAreas(view).length === 0) {
     const option = bestCenter(view, sonar, at, rng.shuffle(allCells(t)));
     if (option && option.value > 4 * bestValue) return { type: 'USE_WEAPON', weaponId: 'sonar', target: option.center };

@@ -85,8 +85,18 @@ async function startMatch(extra: Record<string, unknown> = {}) {
   return { a, b, server };
 }
 
+/** Private 10×10 room without obstacles, so the fixed test fleets are always legal. */
+async function startTableMatch(extra: Record<string, unknown> = {}) {
+  const roomA = await colyseus.sdk.create(ROOM_NAME, join('Alice', { private: true, boardSize: 10, obstacles: 'none', ...extra }));
+  const a = record(roomA);
+  const roomB = await colyseus.sdk.joinById(roomA.roomId, join('Bobby', extra));
+  const b = record(roomB);
+  const server = colyseus.getRoomById<BattleRoom>(roomA.roomId);
+  return { a, b, server };
+}
+
 async function toBattle(extra: Record<string, unknown> = {}) {
-  const m = await startMatch(extra);
+  const m = await startTableMatch(extra);
   m.a.room.send('place_fleet', fleetPayload(rowFleet()));
   m.b.room.send('place_fleet', fleetPayload(columnFleet()));
   await m.a.waitFor('your_fleet');
@@ -167,14 +177,14 @@ describe('matchmaking', () => {
 describe('table settings', () => {
   it('quick match always plays the standard table, ignoring size/obstacle options', async () => {
     const { a, server } = await startMatch({ mode: 'advance', boardSize: 14, obstacles: 'many' });
-    expect(server.rules.grid).toEqual({ width: 10, height: 10 });
-    expect(server.rules.obstacles ?? 'none').toBe('none');
+    expect(server.rules.grid).toEqual({ width: 12, height: 12 });
+    expect(server.rules.obstacles).toBe('few');
     expect(server.rules.powerUpsEnabled).toBe(true);
     expect(server.rules.fleet.some((d) => !isStraightShip(d))).toBe(true);
-    expect(server.state.boardSize).toBe(10);
-    expect(server.state.obstacles).toBe('none');
+    expect(server.state.boardSize).toBe(12);
+    expect(server.state.obstacles).toBe('few');
     const sync = await a.waitFor('sync');
-    expect(Object.keys(sync.view.myBoard.obstacles ?? {})).toHaveLength(0);
+    expect(Object.keys(sync.view.myBoard.obstacles ?? {}).length).toBeGreaterThan(0);
   });
 
   it('classic quick match keeps the straight fleet', async () => {
@@ -223,7 +233,7 @@ describe('table settings', () => {
 
 describe('placement', () => {
   it('rejects invalid fleets and enforces the fleet before ready', async () => {
-    const { a } = await startMatch();
+    const { a } = await startTableMatch();
     a.room.send('ready', {});
     expect((await a.waitFor('error')).code).toBe('FLEET_INCOMPLETE');
     const bad = fleetPayload(rowFleet());
@@ -235,7 +245,7 @@ describe('placement', () => {
   });
 
   it('auto-randomizes fleets when the placement timer expires', async () => {
-    const { a, b, server } = await startMatch({ placementTimeMs: 300 });
+    const { a, b, server } = await startTableMatch({ placementTimeMs: 300 });
     const fleetA = await a.waitFor('your_fleet', undefined, 3000);
     await b.waitFor('your_fleet', undefined, 3000);
     expect(fleetA).toHaveLength(5);

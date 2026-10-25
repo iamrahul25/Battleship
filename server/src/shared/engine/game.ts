@@ -36,7 +36,7 @@ import type {
   ShotResult,
   TargetView,
 } from './types';
-import { canUseWeapon, getWeapon, patternCells, torpedoHasTarget, torpedoLane, torpedoStep } from './weapons';
+import { canUseWeapon, getWeapon, patternCells, torpedoHasTarget, torpedoLane } from './weapons';
 
 export const other = (p: PlayerIndex): PlayerIndex => (p === 0 ? 1 : 0);
 
@@ -249,7 +249,6 @@ export function applyAction(state: GameState, action: Action): ActionResult {
       const defenderIdx = other(action.player);
       const board = state.players[defenderIdx].board;
       if (!inBounds(board, action.target)) return fail(state, 'OUT_OF_BOUNDS');
-      const orientation = action.orientation ?? 'H';
 
       const d = startDraft(state);
       const usage: Partial<PlayerState> = {
@@ -266,7 +265,7 @@ export function applyAction(state: GameState, action: Action): ActionResult {
           weaponId: weapon.id,
           target: action.target,
           results: [],
-          sonar: resolveSonar(board, patternCells(weapon, action.target, board, orientation)),
+          sonar: resolveSonar(board, patternCells(weapon, action.target, board)),
           turnPassed: true,
         });
         return finishDraft(d);
@@ -292,8 +291,7 @@ export function applyAction(state: GameState, action: Action): ActionResult {
           fireAt(d.rng.pick(open));
         }
       } else if (weapon.kind === 'torpedo') {
-        if (!torpedoStep(action.target, board, orientation)) return fail(state, 'OUT_OF_BOUNDS');
-        const lane = torpedoLane(board, action.target, orientation);
+        const lane = torpedoLane(board, action.target);
         if (lane.length === 0) return fail(state, 'BLOCKED');
         if (!torpedoHasTarget(board, lane)) return fail(state, 'ALREADY_FIRED');
         path = [];
@@ -311,7 +309,7 @@ export function applyAction(state: GameState, action: Action): ActionResult {
           knownEmpty.push(c);
         }
       } else {
-        const targets = patternCells(weapon, action.target, board, orientation).filter((c) => isTargetable(board, c));
+        const targets = patternCells(weapon, action.target, board).filter((c) => isTargetable(board, c));
         if (targets.length === 0) return fail(state, 'ALREADY_FIRED');
         for (const c of targets) {
           if (isTargetable(current, c)) fireAt(c); // may have become knownEmpty after a sink in this volley

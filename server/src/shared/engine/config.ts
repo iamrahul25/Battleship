@@ -204,7 +204,7 @@ export interface MatchSettings {
 }
 
 /** Quick Match always plays on these. */
-export const STANDARD_MATCH_SETTINGS: MatchSettings = { boardSize: DEFAULT_BOARD_SIZE, obstacles: 'none' };
+export const STANDARD_MATCH_SETTINGS: MatchSettings = { boardSize: GridPresets.large.width, obstacles: 'few' };
 
 /** Full rules for a mode played with the given board size and obstacle level. */
 export function matchRules(mode: GameMode, settings: MatchSettings, overrides: Partial<RuleSet> = {}): RuleSet {

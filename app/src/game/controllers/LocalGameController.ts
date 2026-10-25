@@ -16,7 +16,6 @@ import {
   matchRules,
   type ObstacleLevel,
   ONLINE_TURN_TIME_MS,
-  type Orientation,
   type PlacedShip,
   type PublicView,
   randomSeed,
@@ -146,8 +145,8 @@ export class LocalGameController implements GameController {
     this.dispatch({ type: 'FIRE', player: HUMAN, target });
   }
 
-  useWeapon(weaponId: string, target: Coord, orientation?: Orientation) {
-    this.dispatch({ type: 'USE_WEAPON', player: HUMAN, weaponId, target, orientation });
+  useWeapon(weaponId: string, target: Coord) {
+    this.dispatch({ type: 'USE_WEAPON', player: HUMAN, weaponId, target });
   }
 
   forfeit() {
@@ -239,7 +238,7 @@ export class LocalGameController implements GameController {
     if (this.state.phase !== 'battle' || this.state.activePlayer !== BOT) return;
     const choice = this.bot.chooseAction(botViewFromPublic(getPublicView(this.state, BOT)));
     if (choice.type === 'FIRE') this.dispatch({ type: 'FIRE', player: BOT, target: choice.target });
-    else this.dispatch({ type: 'USE_WEAPON', player: BOT, weaponId: choice.weaponId, target: choice.target, orientation: choice.orientation });
+    else this.dispatch({ type: 'USE_WEAPON', player: BOT, weaponId: choice.weaponId, target: choice.target });
   }
 
   private clearTimers() {

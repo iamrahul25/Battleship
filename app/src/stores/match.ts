@@ -4,7 +4,6 @@ import {
   type Coord,
   type FinishReason,
   getWeapon,
-  type Orientation,
   type PlacedShip,
   type PublicView,
   type ShotEvent,
@@ -70,7 +69,7 @@ interface MatchState {
   attach: (controller: GameController) => void;
   detach: () => void;
   selectWeapon: (id: string) => void;
-  fire: (target: Coord, orientation?: Orientation) => void;
+  fire: (target: Coord) => void;
   dismissCoinFlip: () => void;
 }
 
@@ -304,7 +303,7 @@ export const useMatchStore = create<MatchState>()((set, get) => {
       set({ ...initial });
     },
     selectWeapon: (id) => set({ selectedWeapon: id }),
-    fire: (target, orientation) => {
+    fire: (target) => {
       const s = get();
       const view = s.view;
       if (!s.controller || !view || s.awaiting || s.fx || s.queue.length) return;
@@ -312,7 +311,7 @@ export const useMatchStore = create<MatchState>()((set, get) => {
       set({ awaiting: true });
       if (s.selectedWeapon === 'standard') s.controller.fire(target);
       else {
-        s.controller.useWeapon(s.selectedWeapon, target, orientation);
+        s.controller.useWeapon(s.selectedWeapon, target);
         set({ selectedWeapon: 'standard' });
       }
       // Safety valve so a lost message can never lock the board forever.

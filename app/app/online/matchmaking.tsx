@@ -1,8 +1,9 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { parseGameMode } from '@shared/engine';
+import { parseGameMode, STANDARD_MATCH_SETTINGS } from '@shared/engine';
 import { Radar } from '@/components/art/Scenes';
+import { describeTable } from '@/components/setup/TableSettings';
 import { Button } from '@/components/ui/Button';
 import { Screen } from '@/components/ui/Screen';
 import { MODE_NAMES } from '@/game/modes';
@@ -29,7 +30,7 @@ export default function Matchmaking() {
         <Radar size={240} />
         <Text style={styles.title}>{error ? 'CONNECTION FAILED' : connecting ? 'CONNECTING…' : 'SEARCHING FOR OPPONENT'}</Text>
         <Text style={text.caption}>
-          {MODE_NAMES[mode]} · {Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, '0')}
+          {MODE_NAMES[mode]} · {describeTable(STANDARD_MATCH_SETTINGS)} · {Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, '0')}
         </Text>
         {error && <Text style={[text.body, styles.error]}>{error.message}</Text>}
       </View>

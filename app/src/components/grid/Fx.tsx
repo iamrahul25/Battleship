@@ -135,9 +135,9 @@ export function AirstrikeFlight({ cells, s, duration }: { cells: Coord[]; s: num
   const p = useProgress(duration);
   const first = cells[0];
   const last = cells[cells.length - 1];
-  const vertical = first.x === last.x && first.y !== last.y;
-  const dx = vertical ? 0 : 1;
-  const dy = vertical ? 1 : 0;
+  const single = first.x === last.x && first.y === last.y;
+  const dx = Math.sign(last.x - first.x);
+  const dy = single ? -1 : Math.sign(last.y - first.y);
   const sx = (first.x + 0.5 - dx * 2) * s;
   const sy = (first.y + 0.5 - dy * 2) * s;
   const ex = (last.x + 0.5 + dx * 2) * s;

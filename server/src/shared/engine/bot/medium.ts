@@ -42,7 +42,7 @@ export function mediumChoose(view: BotView, rng: Rng): BotAction {
     if (airstrike && lineEnds.length) {
       const near = new Set(candidates.map(key));
       const best = bestCenter(view, airstrike, (c) => (near.has(key(c)) ? 3 : 1), rng.shuffle(candidates.slice()));
-      if (best && best.value >= 5) return { type: 'USE_WEAPON', weaponId: 'airstrike', target: best.center, orientation: best.orientation };
+      if (best && best.value >= 5) return { type: 'USE_WEAPON', weaponId: 'airstrike', target: best.center };
     }
     if (candidates.length) return { type: 'FIRE', target: rng.pick(candidates) };
   }
@@ -58,7 +58,7 @@ export function mediumChoose(view: BotView, rng: Rng): BotAction {
   if (torpedo && rng.next() < 0.35) {
     const longest = torpedoOptions(view).sort((a, b) => b.cells.length - a.cells.length)[0];
     if (longest && longest.cells.length >= Math.ceil(t.width / 2)) {
-      return { type: 'USE_WEAPON', weaponId: 'torpedo', target: longest.launch, orientation: longest.orientation };
+      return { type: 'USE_WEAPON', weaponId: 'torpedo', target: longest.drop };
     }
   }
   const barrage = affordable(view, 'barrage');

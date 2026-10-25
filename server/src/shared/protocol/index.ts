@@ -77,7 +77,6 @@ export const useWeaponSchema = z.object({
   weaponId: z.string().min(1).max(32),
   x: coordInt,
   y: coordInt,
-  orientation: z.enum(['H', 'V']).optional(),
 });
 export const forfeitSchema = readySchema;
 export const rematchSchema = readySchema;

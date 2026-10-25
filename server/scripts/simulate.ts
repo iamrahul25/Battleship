@@ -49,7 +49,7 @@ export function simulateGame(difficulty: Difficulty, seed: number, rules: RuleSe
     const res =
       action.type === 'FIRE'
         ? applyAction(state, { type: 'FIRE', player: 0, target: action.target })
-        : applyAction(state, { type: 'USE_WEAPON', player: 0, weaponId: action.weaponId, target: action.target, orientation: action.orientation });
+        : applyAction(state, { type: 'USE_WEAPON', player: 0, weaponId: action.weaponId, target: action.target });
     if (res.error) {
       illegal++;
       if (illegal > 5) break;

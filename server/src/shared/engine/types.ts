@@ -1,5 +1,4 @@
 export type Coord = { x: number; y: number };
-export type Orientation = 'H' | 'V';
 export type Rotation = 0 | 90 | 180 | 270;
 export type PlayerIndex = 0 | 1;
 
@@ -112,7 +111,7 @@ export interface ShotEvent {
   sonar?: SonarResult;
   /** Cells auto-marked as empty: around ships sunk by this event, and water a torpedo ran through. */
   knownEmpty?: Coord[];
-  /** Torpedo track from the launch cell to where it stopped. */
+  /** Torpedo track from the drop cell to where it stopped. */
   path?: Coord[];
   turnPassed: boolean;
   /** The shooter hit a mine and will skip their next turn. */
@@ -129,7 +128,7 @@ export type Action =
   | { type: 'PLACE_FLEET'; player: PlayerIndex; ships: PlacedShip[]; mines?: Coord[] }
   | { type: 'READY'; player: PlayerIndex }
   | { type: 'FIRE'; player: PlayerIndex; target: Coord }
-  | { type: 'USE_WEAPON'; player: PlayerIndex; weaponId: string; target: Coord; orientation?: Orientation }
+  | { type: 'USE_WEAPON'; player: PlayerIndex; weaponId: string; target: Coord }
   | { type: 'TIMEOUT'; player: PlayerIndex }
   | { type: 'FORFEIT'; player: PlayerIndex; reason?: 'forfeit' | 'disconnect' };
 

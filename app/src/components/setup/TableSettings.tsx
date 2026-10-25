@@ -8,6 +8,8 @@ import {
   createRng,
   type GameMode,
   generateObstacles,
+  LARGE_BOARD_SIZE,
+  LARGE_BOARD_WEAPON_USES,
   type MatchSettings,
   matchRules,
   OBSTACLE_KINDS,
@@ -167,6 +169,9 @@ export function TableSettings({ mode, value, onChange }: Props) {
           </View>
         ))}
       </View>
+      {rules.powerUpsEnabled && value.boardSize >= LARGE_BOARD_SIZE ? (
+        <Text style={styles.caption}>Big board bonus: {LARGE_BOARD_WEAPON_USES} uses of every limited power-up.</Text>
+      ) : null}
       <BoardPreview rules={rules} />
 
       <Text style={styles.section}>OBSTACLES</Text>

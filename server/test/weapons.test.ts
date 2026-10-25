@@ -13,8 +13,8 @@ import {
   POWER_UP_IDS,
   randomWeaponAction,
   type ShotEvent,
-  torpedoLaunch,
   torpedoLane,
+  weaponMaxUses,
   WEAPONS,
 } from '../src/shared/engine';
 import { battleGame, must } from './helpers';
@@ -33,30 +33,42 @@ const lastShot = (s: GameState): ShotEvent => s.log[s.log.length - 1];
 const coords = (cs: { x: number; y: number }[]) => cs.map(key);
 
 describe('airstrike', () => {
-  it('hits a horizontal line of 4, costs 60 and ends the turn', () => {
+  it('hits the drop cell and the next 3 cells up, costs 60 and ends the turn', () => {
     const s = withCharge(battleGame(), 60);
-    const r = must(applyAction(s, { type: 'USE_WEAPON', player: 0, weaponId: 'airstrike', target: { x: 2, y: 0 }, orientation: 'H' }));
+    const r = must(applyAction(s, { type: 'USE_WEAPON', player: 0, weaponId: 'airstrike', target: { x: 0, y: 3 } }));
     const ev = lastShot(r.state);
-    expect(coords(ev.results.map((x) => x.coord))).toEqual(['1,0', '2,0', '3,0', '4,0']);
-    expect(ev.results.every((x) => x.result === 'hit')).toBe(true);
+    expect(coords(ev.results.map((x) => x.coord))).toEqual(['0,3', '0,2', '0,1', '0,0']);
+    expect(ev.results.map((x) => x.result)).toEqual(['miss', 'hit', 'miss', 'hit']);
     expect(r.state.players[0].charge).toBe(0);
     expect(r.state.players[0].weaponUses.airstrike).toBe(1);
     expect(r.state.activePlayer).toBe(1);
   });
 
-  it('runs vertically and shifts to stay on the board', () => {
-    const s = withCharge(battleGame());
-    const r = must(applyAction(s, { type: 'USE_WEAPON', player: 0, weaponId: 'airstrike', target: { x: 0, y: 0 }, orientation: 'V' }));
-    const ev = lastShot(r.state);
-    expect(coords(ev.results.map((x) => x.coord))).toEqual(['0,0', '0,1', '0,2', '0,3']);
-    expect(ev.results.map((x) => x.result)).toEqual(['hit', 'miss', 'hit', 'miss']);
-    expect(coords(patternCells(WEAPONS.airstrike, { x: 9, y: 9 }, { width: 10, height: 10 }, 'H'))).toEqual(['6,9', '7,9', '8,9', '9,9']);
+  it('stops at the top edge and skips rocks', () => {
+    const edge = lastShot(must(applyAction(withCharge(battleGame()), { type: 'USE_WEAPON', player: 0, weaponId: 'airstrike', target: { x: 5, y: 1 } })).state);
+    expect(coords(edge.results.map((x) => x.coord))).toEqual(['5,1', '5,0']);
+    expect(coords(patternCells(WEAPONS.airstrike, { x: 9, y: 0 }, { width: 10, height: 10 }))).toEqual(['9,0']);
+    const s = withCharge(withDefender(battleGame(), { obstacles: { '0,2': 'rock' } }));
+    const ev = lastShot(must(applyAction(s, { type: 'USE_WEAPON', player: 0, weaponId: 'airstrike', target: { x: 0, y: 3 } })).state);
+    expect(coords(ev.results.map((x) => x.coord))).toEqual(['0,3', '0,1', '0,0']);
   });
 
   it('is limited to 2 uses', () => {
     const base = battleGame();
     const s: GameState = { ...base, players: [{ ...base.players[0], charge: 100, weaponUses: { airstrike: 2 } }, base.players[1]] };
     expect(applyAction(s, { type: 'USE_WEAPON', player: 0, weaponId: 'airstrike', target: { x: 5, y: 5 } }).error).toBe('WEAPON_NOT_READY');
+  });
+
+  it('gets a third use on 13×13 and bigger boards', () => {
+    const base = battleGame({ grid: { width: 13, height: 13 } });
+    const s: GameState = { ...base, players: [{ ...base.players[0], charge: 100, weaponUses: { airstrike: 2 } }, base.players[1]] };
+    const r = must(applyAction(s, { type: 'USE_WEAPON', player: 0, weaponId: 'airstrike', target: { x: 5, y: 5 } }));
+    expect(r.state.players[0].weaponUses.airstrike).toBe(3);
+    const third: GameState = { ...s, players: [{ ...s.players[0], weaponUses: { airstrike: 3 } }, s.players[1]] };
+    expect(applyAction(third, { type: 'USE_WEAPON', player: 0, weaponId: 'airstrike', target: { x: 5, y: 5 } }).error).toBe('WEAPON_NOT_READY');
+    expect(weaponMaxUses(WEAPONS.torpedo, base.rules)).toBe(3);
+    expect(weaponMaxUses(WEAPONS.torpedo, battleGame({ grid: { width: 12, height: 12 } }).rules)).toBe(2);
+    expect(weaponMaxUses(WEAPONS.sonar, base.rules)).toBeNull();
   });
 });
 
@@ -113,60 +125,66 @@ describe('barrage', () => {
 });
 
 describe('torpedo', () => {
-  const fire = (s: GameState, target: { x: number; y: number }, orientation: 'H' | 'V' = 'H') =>
-    applyAction(withCharge(s), { type: 'USE_WEAPON', player: 0, weaponId: 'torpedo', target, orientation });
+  const fire = (s: GameState, target: { x: number; y: number }) =>
+    applyAction(withCharge(s), { type: 'USE_WEAPON', player: 0, weaponId: 'torpedo', target });
+  /** rowFleet moved 5 columns right, so every row starts with open water. */
+  const shifted = (s: GameState) =>
+    withDefender(s, {
+      ships: s.players[1].board.ships.map((ship) => ({
+        ...ship,
+        origin: { x: ship.origin.x + 5, y: ship.origin.y },
+        cells: ship.cells.map((c) => ({ x: c.x + 5, y: c.y })),
+      })),
+    });
 
-  it('travels from the edge, marks water empty and hits the first ship', () => {
-    const r = must(fire(battleGame(), { x: 9, y: 0 }));
+  it('runs right from the drop cell, marks water empty and hits the first ship', () => {
+    const r = must(fire(shifted(battleGame()), { x: 1, y: 0 }));
     const ev = lastShot(r.state);
     expect(ev.results).toHaveLength(1);
-    expect(ev.results[0]).toMatchObject({ coord: { x: 4, y: 0 }, result: 'hit' });
-    expect(coords(ev.knownEmpty!)).toEqual(['9,0', '8,0', '7,0', '6,0', '5,0']);
-    expect(coords(ev.path!)).toEqual(['9,0', '8,0', '7,0', '6,0', '5,0', '4,0']);
-    expect(r.state.players[1].board.shots['6,0']).toBe('knownEmpty');
+    expect(ev.results[0]).toMatchObject({ coord: { x: 5, y: 0 }, result: 'hit' });
+    expect(coords(ev.knownEmpty!)).toEqual(['1,0', '2,0', '3,0', '4,0']);
+    expect(coords(ev.path!)).toEqual(['1,0', '2,0', '3,0', '4,0', '5,0']);
+    expect(r.state.players[1].board.shots['3,0']).toBe('knownEmpty');
+    expect(r.state.players[1].board.shots['0,0']).toBeUndefined();
     expect(r.state.players[0].charge).toBe(100 - WEAPONS.torpedo.cost);
     expect(r.state.activePlayer).toBe(1);
   });
 
-  it('runs vertically from the bottom edge', () => {
-    const ev = lastShot(must(fire(battleGame(), { x: 1, y: 9 }, 'V')).state);
-    expect(ev.results[0]).toMatchObject({ coord: { x: 1, y: 8 }, result: 'hit' });
-    expect(coords(ev.knownEmpty!)).toEqual(['1,9']);
+  it('hits a ship on the drop cell itself', () => {
+    const ev = lastShot(must(fire(battleGame(), { x: 0, y: 0 })).state);
+    expect(ev.results[0]).toMatchObject({ coord: { x: 0, y: 0 }, result: 'hit' });
+    expect(coords(ev.path!)).toEqual(['0,0']);
   });
 
-  it('clears a whole empty lane when it hits nothing', () => {
-    const ev = lastShot(must(fire(battleGame(), { x: 0, y: 1 })).state);
+  it('clears the rest of the row when it hits nothing', () => {
+    const ev = lastShot(must(fire(battleGame(), { x: 3, y: 1 })).state);
     expect(ev.results).toHaveLength(0);
-    expect(ev.knownEmpty).toHaveLength(10);
-  });
-
-  it('must launch from the matching edge', () => {
-    expect(fire(battleGame(), { x: 5, y: 5 }).error).toBe('OUT_OF_BOUNDS');
-    expect(fire(battleGame(), { x: 0, y: 5 }, 'V').error).toBe('OUT_OF_BOUNDS');
+    expect(coords(ev.knownEmpty!)).toEqual(['3,1', '4,1', '5,1', '6,1', '7,1', '8,1', '9,1']);
+    expect(coords(lastShot(must(fire(battleGame(), { x: 9, y: 1 })).state).path!)).toEqual(['9,1']);
   });
 
   it('stops at rocks and islands', () => {
-    const s = withDefender(battleGame(), { obstacles: { '7,0': 'rock' } });
-    const ev = lastShot(must(fire(s, { x: 9, y: 0 })).state);
+    const s = withDefender(shifted(battleGame()), { obstacles: { '3,0': 'rock' } });
+    const ev = lastShot(must(fire(s, { x: 1, y: 0 })).state);
     expect(ev.results).toHaveLength(0);
-    expect(coords(ev.knownEmpty!)).toEqual(['9,0', '8,0']);
-    expect(fire(withDefender(battleGame(), { obstacles: { '9,0': 'island' } }), { x: 9, y: 0 }).error).toBe('BLOCKED');
+    expect(coords(ev.knownEmpty!)).toEqual(['1,0', '2,0']);
+    expect(fire(withDefender(battleGame(), { obstacles: { '7,1': 'island' } }), { x: 7, y: 1 }).error).toBe('BLOCKED');
   });
 
   it('passes over reefs and cells already fired at', () => {
-    let s = withDefender(battleGame({ bonusShotOnHit: false }), { obstacles: { '8,0': 'reef' } });
-    s = must(applyAction(s, { type: 'FIRE', player: 0, target: { x: 4, y: 0 } })).state;
+    let s = withDefender(shifted(battleGame({ bonusShotOnHit: false })), { obstacles: { '2,0': 'reef' } });
+    s = must(applyAction(s, { type: 'FIRE', player: 0, target: { x: 5, y: 0 } })).state;
     s = must(applyAction(s, { type: 'FIRE', player: 1, target: { x: 9, y: 9 } })).state;
-    const r = must(fire(s, { x: 9, y: 0 }));
+    const r = must(fire(s, { x: 1, y: 0 }));
     const ev = lastShot(r.state);
-    expect(ev.results[0]).toMatchObject({ coord: { x: 3, y: 0 }, result: 'hit' });
-    expect(coords(ev.knownEmpty!)).toEqual(['9,0', '7,0', '6,0', '5,0']);
-    expect(r.state.players[1].board.shots['8,0']).toBeUndefined();
+    expect(ev.results[0]).toMatchObject({ coord: { x: 6, y: 0 }, result: 'hit' });
+    expect(coords(ev.knownEmpty!)).toEqual(['1,0', '3,0', '4,0']);
+    expect(r.state.players[1].board.shots['2,0']).toBeUndefined();
   });
 
   it('detonates a mine without costing a turn', () => {
     const s = withDefender(battleGame(), { obstacles: { '6,0': 'mine' } });
-    const r = must(fire(s, { x: 9, y: 0 }));
+    const r = must(fire(s, { x: 5, y: 0 }));
     const ev = lastShot(r.state);
     expect(ev.results[0]).toMatchObject({ coord: { x: 6, y: 0 }, result: 'miss', obstacle: 'mine' });
     expect(ev.mineTriggered).toBeUndefined();
@@ -184,13 +202,11 @@ describe('torpedo', () => {
     expect(fire(s, { x: 0, y: 1 }).error).toBe('ALREADY_FIRED');
   });
 
-  it('launch helper picks the nearer edge and the lane stops before solid obstacles', () => {
-    const dims = { width: 10, height: 10 };
-    expect(torpedoLaunch({ x: 3, y: 4 }, dims, 'H')).toEqual({ x: 0, y: 4 });
-    expect(torpedoLaunch({ x: 7, y: 4 }, dims, 'H')).toEqual({ x: 9, y: 4 });
-    expect(torpedoLaunch({ x: 7, y: 8 }, dims, 'V')).toEqual({ x: 7, y: 9 });
-    const lane = torpedoLane({ ...dims, shots: {}, obstacles: { '4,2': 'island' } }, { x: 0, y: 2 }, 'H');
-    expect(lane).toHaveLength(4);
+  it('lane helper runs right from the drop cell and stops before solid obstacles', () => {
+    const board = { width: 10, height: 10, shots: {}, obstacles: { '4,2': 'island' as const } };
+    expect(coords(torpedoLane(board, { x: 1, y: 2 }))).toEqual(['1,2', '2,2', '3,2']);
+    expect(torpedoLane(board, { x: 5, y: 2 })).toHaveLength(5);
+    expect(torpedoLane(board, { x: 4, y: 2 })).toHaveLength(0);
   });
 });
 
@@ -202,7 +218,7 @@ describe('bots and the new weapons', () => {
         const action = randomWeaponAction(botViewFromPublic(getPublicView(s, 0)), WEAPONS[id], createRng(seed));
         expect(action).not.toBeNull();
         if (action?.type !== 'USE_WEAPON') continue;
-        must(applyAction(s, { type: 'USE_WEAPON', player: 0, weaponId: action.weaponId, target: action.target, orientation: action.orientation }));
+        must(applyAction(s, { type: 'USE_WEAPON', player: 0, weaponId: action.weaponId, target: action.target }));
       }
     }
   });
@@ -221,7 +237,7 @@ describe('bots and the new weapons', () => {
           s = must(
             a.type === 'FIRE'
               ? applyAction(s, { type: 'FIRE', player: p, target: a.target })
-              : applyAction(s, { type: 'USE_WEAPON', player: p, weaponId: a.weaponId, target: a.target, orientation: a.orientation }),
+              : applyAction(s, { type: 'USE_WEAPON', player: p, weaponId: a.weaponId, target: a.target }),
           ).state;
         }
         expect(s.phase).toBe('finished');

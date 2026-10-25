@@ -163,7 +163,6 @@ export class BattleRoom extends Room<{ state: BattleState }> {
             player: seat.index,
             weaponId: msg.weaponId,
             target: { x: msg.x, y: msg.y },
-            orientation: msg.orientation,
           },
           client,
         ),

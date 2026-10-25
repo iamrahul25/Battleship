@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { useAnimatedStyle, withTiming } from 'react-native-reanimated';
-import { CHARGE, canUseWeapon, POWER_UP_IDS, type PlayerPublicInfo, type RuleSet, WEAPONS, weaponUsesLeft } from '@shared/engine';
+import { CHARGE, canUseWeapon, POWER_UP_IDS, type PlayerPublicInfo, type RuleSet, WEAPONS, weaponMaxUses, weaponUsesLeft } from '@shared/engine';
 import { playSound } from '@/audio/SoundManager';
 import { haptic } from '@/platform/haptics';
 import { colors, fonts, radii } from '@/theme';
@@ -44,7 +44,8 @@ export function PowerUpBar({ rules, me, selected, enabled, onSelect }: Props) {
           const w = WEAPONS[id];
           const ready = canUseWeapon(me, w, rules);
           const active = selected === id;
-          const uses = weaponUsesLeft(me, w);
+          const uses = weaponUsesLeft(me, w, rules);
+          const maxUses = weaponMaxUses(w, rules);
           const spent = Number.isFinite(uses) && uses === 0;
           const iconColor = active ? colors.navy900 : ready && enabled ? colors.brass : colors.steel600;
           return (
@@ -63,9 +64,9 @@ export function PowerUpBar({ rules, me, selected, enabled, onSelect }: Props) {
             >
               <MaterialCommunityIcons name={WEAPON_ICONS[id]} size={20} color={iconColor} />
               <Text style={[styles.cost, active && { color: colors.navy900 }, !ready && { color: colors.steel600 }]}>{w.cost}</Text>
-              {Number.isFinite(uses) && w.maxUses ? (
+              {Number.isFinite(uses) && maxUses ? (
                 <View style={styles.pips}>
-                  {Array.from({ length: w.maxUses }, (_, i) => (
+                  {Array.from({ length: maxUses }, (_, i) => (
                     <View key={i} style={[styles.pip, active && styles.pipActiveOff, i < uses && (active ? styles.pipActive : styles.pipOn)]} />
                   ))}
                 </View>

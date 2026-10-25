@@ -7,7 +7,6 @@ import {
   type MatchSettings,
   matchRules,
   OBSTACLE_LEVELS,
-  type Orientation,
   parseGameMode,
   type PlacedShip,
   type PublicView,
@@ -341,8 +340,8 @@ export class OnlineGameController implements GameController {
     this.room.send(ClientMessage.Fire, { x: target.x, y: target.y });
   }
 
-  useWeapon(weaponId: string, target: Coord, orientation?: Orientation) {
-    this.room.send(ClientMessage.UseWeapon, { weaponId, x: target.x, y: target.y, orientation });
+  useWeapon(weaponId: string, target: Coord) {
+    this.room.send(ClientMessage.UseWeapon, { weaponId, x: target.x, y: target.y });
   }
 
   forfeit() {

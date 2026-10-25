@@ -3,6 +3,8 @@ import { StyleSheet, Text, View } from 'react-native';
 import {
   CHARGE,
   type GameMode,
+  LARGE_BOARD_SIZE,
+  LARGE_BOARD_WEAPON_USES,
   MAX_CONSECUTIVE_TIMEOUTS,
   type ObstacleKind,
   POWER_UP_IDS,
@@ -11,6 +13,7 @@ import {
   shapeCells,
   totalShips,
   WEAPONS,
+  weaponMaxUses,
 } from '@shared/engine';
 import { drawObstacleIcon } from '@/art/obstacles';
 import { ADVANCE, MODE_NAMES } from '@/game/modes';
@@ -128,8 +131,8 @@ function Marker({ kind }: { kind: 'miss' | 'hit' | 'empty' }) {
   );
 }
 
-type Tone = 'strike' | 'scan' | 'clear';
-const TONE: Record<Tone, string> = { strike: colors.signalRed, scan: colors.radarGreen, clear: colors.steel600 };
+type Tone = 'strike' | 'scan' | 'clear' | 'tap';
+const TONE: Record<Tone, string> = { strike: colors.signalRed, scan: colors.radarGreen, clear: colors.steel600, tap: colors.brass };
 
 /** 4×4 diagram of the cells a weapon affects. */
 function Pattern({ cells }: { cells: { x: number; y: number; tone: Tone }[] }) {
@@ -147,13 +150,22 @@ const strike = (pts: [number, number][], tone: Tone = 'strike') => pts.map(([x, 
 
 const WEAPON_HELP: Record<(typeof POWER_UP_IDS)[number], { cells: { x: number; y: number; tone: Tone }[]; text: string }> = {
   torpedo: {
-    cells: [...strike([[0, 1], [1, 1], [2, 1]], 'clear'), ...strike([[3, 1]])],
-    text: 'Pick a row or column; it runs from the nearer edge, clears the water it crosses and hits the first ship. Stopped by rocks and islands, passes over reefs.',
+    cells: [...strike([[0, 1]], 'tap'), ...strike([[1, 1], [2, 1]], 'clear'), ...strike([[3, 1]])],
+    text: 'Tap any cell to drop it: it runs right from there, clears the water it crosses and hits the first ship. Stops at a rock, an island or the board edge; passes over reefs.',
   },
-  airstrike: { cells: strike([[0, 1], [1, 1], [2, 1], [3, 1]]), text: 'Hits a straight line of 4 cells. Toggle row or column before you aim.' },
-  barrage: { cells: strike([[0, 0], [3, 1], [1, 2], [2, 3]]), text: '4 shells land on random cells you haven’t revealed yet.' },
-  sonar: { cells: strike([[0, 0], [1, 0], [2, 0], [0, 1], [1, 1], [2, 1], [0, 2], [1, 2], [2, 2]], 'scan'), text: 'Reveals how many ship cells hide in a 3×3 area, without firing.' },
-  artillery: { cells: strike([[1, 0], [0, 1], [1, 1], [2, 1], [1, 2]]), text: 'Strikes a plus-shaped 5-cell pattern.' },
+  airstrike: {
+    cells: [...strike([[1, 3]], 'tap'), ...strike([[1, 2], [1, 1], [1, 0]])],
+    text: 'Tap any cell: the plane strikes that cell and the next 3 cells forward (up). Near the top edge it strikes fewer cells.',
+  },
+  barrage: { cells: strike([[0, 0], [3, 1], [1, 2], [2, 3]]), text: '4 shells land on random cells you haven’t revealed yet. No aiming needed.' },
+  sonar: {
+    cells: [...strike([[0, 0], [1, 0], [2, 0], [0, 1], [2, 1], [0, 2], [1, 2], [2, 2]], 'scan'), ...strike([[1, 1]], 'tap')],
+    text: 'Tap the centre of a 3×3 area: reveals how many ship cells hide there, without firing.',
+  },
+  artillery: {
+    cells: [...strike([[1, 0], [0, 1], [2, 1], [1, 2]]), ...strike([[1, 1]], 'tap')],
+    text: 'Tap the centre: strikes it and the 4 cells around it in a + shape.',
+  },
 };
 
 export interface MatchInfo {
@@ -238,9 +250,20 @@ export function RulesGuide({ match }: { match?: MatchInfo }) {
           Your charge meter fills as you fight: +{CHARGE.perHit} per hit, +{CHARGE.perSunk} per ship sunk, +{CHARGE.missStreakBonus} after{' '}
           {CHARGE.missStreakLength} misses in a row (max {CHARGE.max}). Using a power-up ends your turn.
         </Text>
+        <Text style={[styles.p, { marginTop: 8 }]}>
+          How to use: tap a power-up in the bar, then tap the enemy board. In the diagrams, <Text style={{ color: colors.brass }}>gold</Text> is the cell you tap,{' '}
+          <Text style={{ color: colors.signalRed }}>red</Text> is struck, <Text style={{ color: colors.radarGreen }}>green</Text> is scanned and{' '}
+          <Text style={{ color: colors.steel400 }}>grey</Text> is water cleared on the way.
+        </Text>
         {POWER_UP_IDS.map((id) => {
           const w = WEAPONS[id];
           const h = WEAPON_HELP[id];
+          const maxUses = rules ? weaponMaxUses(w, rules) : w.maxUses;
+          const usesNote = !maxUses
+            ? ''
+            : rules
+              ? ` Up to ${maxUses} uses per game.`
+              : ` Up to ${maxUses} uses per game (${LARGE_BOARD_WEAPON_USES} on ${LARGE_BOARD_SIZE}×${LARGE_BOARD_SIZE} and bigger boards).`;
           return (
             <View key={id} style={styles.weapon}>
               <Pattern cells={h.cells} />
@@ -253,7 +276,7 @@ export function RulesGuide({ match }: { match?: MatchInfo }) {
                 </View>
                 <Text style={styles.p}>
                   {h.text}
-                  {w.maxUses ? ` Up to ${w.maxUses} uses per game.` : ''}
+                  {usesNote}
                 </Text>
               </View>
             </View>

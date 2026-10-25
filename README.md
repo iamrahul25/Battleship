@@ -12,11 +12,12 @@ The full design is in [`plan.md`](./plan.md).
 
 - **Modes:** *Advance* (default, power-ups and shaped ships) and *Classic* (standard shots only).
 - **Power-ups (Advance mode):** hits, sinks and miss streaks fill a charge meter, which you spend on
-  - **Torpedo** (50 charge, 2 per game): runs along a row or column and hits the first ship;
-  - **Airstrike** (60 charge, 2 per game): a straight line of 4 cells;
+  - **Torpedo** (50 charge, 2 per game): dropped on any cell, runs right until it hits a ship, a rock/island or the edge;
+  - **Airstrike** (60 charge, 2 per game): strikes the tapped cell and the next 3 cells forward (up);
   - **Barrage** (70 charge, 2 per game): 4 shells on random unrevealed cells;
   - **Sonar** (80 charge): scans a 3×3 area and reports how many ship cells it contains;
   - **Heavy Artillery** (100 charge, 2 per game): a plus-shaped 5-cell strike.
+  - On 13×13 and bigger boards every limited power-up gets 3 uses instead of 2.
 - **Rules toggles:** bonus shot on hit (on by default), ships may touch (off by default),
   offline turn timer (off by default; online turns are always 30 s).
 - **Bots:** Easy (Cadet), Medium (Captain), Hard (Admiral), all playing by the same rules as you.

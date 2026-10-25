@@ -1,4 +1,4 @@
-import type { Coord, Difficulty, FinishReason, GameMode, Orientation, PlacedShip, PublicView, RuleSet, ShotEvent } from '@shared/engine';
+import type { Coord, Difficulty, FinishReason, GameMode, PlacedShip, PublicView, RuleSet, ShotEvent } from '@shared/engine';
 import type { EmoteId } from '@shared/protocol';
 
 export interface PlayerCardInfo {
@@ -52,7 +52,7 @@ export interface GameController {
   placeFleet(ships: PlacedShip[], mines?: Coord[]): void;
   ready(): void;
   fire(target: Coord): void;
-  useWeapon(id: string, target: Coord, orientation?: Orientation): void;
+  useWeapon(id: string, target: Coord): void;
   forfeit(): void;
   rematch(): void;
   emote(id: EmoteId): void;

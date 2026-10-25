@@ -1,7 +1,9 @@
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { NAME_MAX, sanitizeName } from '@shared/protocol';
+import { playSound } from '@/audio/SoundManager';
 import { Avatar } from '@/components/ui/Avatar';
 import { AvatarPicker } from '@/components/ui/AvatarPicker';
 import { Button } from '@/components/ui/Button';
@@ -24,6 +26,8 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
+const winsLabel = (n: number) => `${n} ${n === 1 ? 'win' : 'wins'}`;
+
 const wl = (r: WinLoss) => `${r.won}W – ${r.lost}L${r.played ? `  (${Math.round((r.won / r.played) * 100)}%)` : ''}`;
 
 export default function Profile() {
@@ -33,6 +37,7 @@ export default function Profile() {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(profile.nickname);
   const [avatar, setAvatar] = useState(profile.avatarId);
+  const [ranksOpen, setRanksOpen] = useState(false);
   const rank = rankFor(stats.total.won);
   const progress = rank.next ? (stats.total.won - RANKS[rank.index].wins) / (rank.next.wins - RANKS[rank.index].wins) : 1;
 
@@ -57,7 +62,7 @@ export default function Profile() {
         <View style={styles.progressTrack}>
           <View style={[styles.progressFill, { width: `${Math.min(1, progress) * 100}%` }]} />
         </View>
-        <Text style={text.caption}>{rank.next ? `${rank.next.wins - stats.total.won} wins to ${rank.next.title}` : 'Highest rank achieved'}</Text>
+        <Text style={text.caption}>{rank.next ? `${winsLabel(rank.next.wins - stats.total.won)} to ${rank.next.title}` : 'Highest rank achieved'}</Text>
         {editing ? (
           <View style={{ width: '100%', marginTop: 12, gap: 10 }}>
             <AvatarPicker value={avatar} onChange={setAvatar} size={50} />
@@ -67,6 +72,41 @@ export default function Profile() {
         ) : (
           <Button title="Edit profile" variant="secondary" size="sm" onPress={() => setEditing(true)} style={{ marginTop: 12, alignSelf: 'stretch' }} />
         )}
+      </Panel>
+
+      <Panel style={styles.panel}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded: ranksOpen }}
+          accessibilityLabel={`Ranks. ${ranksOpen ? 'Tap to collapse' : 'Tap to see all ranks'}`}
+          onPress={() => {
+            playSound('click');
+            setRanksOpen((o) => !o);
+          }}
+          hitSlop={8}
+          style={styles.ranksHeader}
+          testID="ranks-toggle"
+        >
+          <Text style={styles.ranksTitle}>RANKS</Text>
+          <Text style={styles.ranksHint}>{ranksOpen ? 'Hide' : `View all ${RANKS.length}`}</Text>
+          <MaterialCommunityIcons name={ranksOpen ? 'chevron-up' : 'chevron-down'} size={22} color={colors.steel200} />
+        </Pressable>
+        {ranksOpen ? <Text style={[text.caption, { marginTop: 8, marginBottom: 6 }]}>Win battles (online or vs bots) to climb the ranks.</Text> : null}
+        {ranksOpen && RANKS.map((r, i) => {
+          const current = i === rank.index;
+          const reached = i <= rank.index;
+          return (
+            <View key={r.title} style={[styles.rankRow, current && styles.rankRowCurrent]}>
+              <MaterialCommunityIcons
+                name={current ? 'star' : reached ? 'check-circle' : 'lock'}
+                size={18}
+                color={current ? colors.brass : reached ? colors.radarGreen : colors.steel600}
+              />
+              <Text style={[styles.rankTitle, current && { color: colors.brass }, !reached && { color: colors.steel400 }]}>{r.title}</Text>
+              <Text style={[styles.rankWins, !reached && { color: colors.steel400 }]}>{r.wins === 0 ? 'Start' : winsLabel(r.wins)}</Text>
+            </View>
+          );
+        })}
       </Panel>
 
       <Panel title="Service record" style={styles.panel}>
@@ -121,4 +161,11 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.steel600 },
   rowLabel: { ...text.body, color: colors.steel200 },
   rowValue: { ...text.bodyBold },
+  ranksHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  ranksTitle: { ...text.label, flex: 1 },
+  ranksHint: { ...text.caption, color: colors.steel200 },
+  rankRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 7, paddingHorizontal: 8, borderRadius: 8 },
+  rankRowCurrent: { backgroundColor: 'rgba(212,169,58,0.12)' },
+  rankTitle: { ...text.bodyBold, flex: 1 },
+  rankWins: { ...text.body, color: colors.steel200 },
 });

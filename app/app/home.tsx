@@ -125,20 +125,20 @@ export default function Home() {
             title="Play Online"
             size="lg"
             variant="secondary"
-            onPress={() => router.push('/online')}
+            onPress={() => router.push({ pathname: '/online/matchmaking', params: { mode: 'advance' } })}
             icon={<MaterialCommunityIcons name="earth" size={26} color={colors.steel100} />}
           />
           <Button
             title="Private Room"
             variant="secondary"
-            onPress={() => router.push({ pathname: '/online', params: { tab: 'private' } })}
+            onPress={() => router.push('/online')}
             icon={<MaterialCommunityIcons name="key-variant" size={22} color={colors.steel100} />}
           />
           <View style={styles.tiles}>
             <NavTile icon="person" label="Profile" onPress={() => router.push('/profile')} />
             <NavTile icon="medal" label="Medals" onPress={() => router.push('/achievements')} />
-            <NavTile icon="settings-sharp" label="Settings" onPress={() => router.push('/settings')} />
             <NavTile icon="help-buoy" label="How to Play" onPress={() => router.push('/how-to-play')} />
+            <NavTile icon="settings-sharp" label="Settings" onPress={() => router.push('/settings')} />
           </View>
         </View>
       </View>
