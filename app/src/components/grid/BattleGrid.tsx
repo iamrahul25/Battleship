@@ -1,7 +1,7 @@
 import { BlurMask, Canvas, Circle, Group, Line, Picture, Rect, vec } from '@shopify/react-native-skia';
 import { memo, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { GestureDetector, usePanGesture } from 'react-native-gesture-handler';
+import { GestureDetector, useCompetingGestures, usePanGesture, useTapGesture } from 'react-native-gesture-handler';
 import { Easing, useDerivedValue, useSharedValue, withRepeat, withTiming } from 'react-native-reanimated';
 import { type Coord, inBounds, isTargetable, parseKey, type PlacedShip, type SonarResult } from '@shared/engine';
 import type { ActiveFx } from '@/stores/match';
@@ -113,6 +113,13 @@ function BattleGridImpl({
     return inBounds(board, c) ? c : null;
   };
 
+  const fireAt = (x: number, y: number) => {
+    const c = toCell(x, y);
+    if (c && onFire) onFire(c);
+  };
+
+  // A pan only activates on a move event, so a perfectly still tap fails it;
+  // the competing tap gesture catches those touches.
   const pan = usePanGesture({
     enabled: interactive,
     minDistance: 0,
@@ -120,11 +127,17 @@ function BattleGridImpl({
     onBegin: (e) => setHover(toCell(e.x, e.y)),
     onUpdate: (e) => setHover(toCell(e.x, e.y)),
     onFinalize: (e) => {
-      const c = toCell(e.x, e.y);
       setHover(null);
-      if (!e.canceled && c && onFire) onFire(c);
+      if (!e.canceled) fireAt(e.x, e.y);
     },
   });
+  const tap = useTapGesture({
+    enabled: interactive,
+    maxDuration: 10_000,
+    runOnJS: true,
+    onActivate: (e) => fireAt(e.x, e.y),
+  });
+  const gesture = useCompetingGestures(pan, tap);
 
   const hover = interactive ? hoverCell : null;
   const aimCells = hover && aimPattern ? aimPattern(hover) : hover ? [hover] : [];
@@ -154,7 +167,7 @@ function BattleGridImpl({
           </View>
         </>
       )}
-      <GestureDetector gesture={pan}>
+      <GestureDetector gesture={gesture}>
         <View style={[styles.grid, { left: gutter, top: gutter, width: gridW, height: gridH }]}>
           <Canvas style={{ width: gridW, height: gridH }}>
             <Water width={gridW} height={gridH} tone={kind === 'own' ? 1 : 0} animate={!reducedMotion} />
