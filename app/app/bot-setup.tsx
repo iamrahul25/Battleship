@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { BOT_PROFILES, clampBoardSize, type Difficulty, type GameMode, type MatchSettings } from '@shared/engine';
 import { playSound } from '@/audio/SoundManager';
+import { ModeInfo } from '@/components/setup/ModeInfo';
 import { TableSettings } from '@/components/setup/TableSettings';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
@@ -96,6 +97,7 @@ export default function BotSetup() {
           { value: 'advance', label: ADVANCE.toUpperCase(), hint: 'T/L/Z ships, power-ups' },
         ]}
       />
+      <ModeInfo mode={mode} boardSize={boardSize} />
 
       <TableSettings mode={mode} value={table} onChange={setTable} />
 

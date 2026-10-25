@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 import { clampBoardSize, type GameMode, type MatchSettings, STANDARD_MATCH_SETTINGS } from '@shared/engine';
 import { ROOM_CODE_LENGTH, roomCodeSchema } from '@shared/protocol';
+import { ModeInfo } from '@/components/setup/ModeInfo';
 import { describeTable, TableSettings } from '@/components/setup/TableSettings';
 import { Button } from '@/components/ui/Button';
 import { Segmented } from '@/components/ui/controls';
@@ -113,6 +114,7 @@ export default function OnlineMenu() {
           { value: 'advance', label: ADVANCE.toUpperCase(), hint: 'T/L/Z ships, power-ups' },
         ]}
       />
+      <ModeInfo mode={mode} boardSize={STANDARD_MATCH_SETTINGS.boardSize} />
       <View style={{ gap: 14, marginTop: 16 }}>{privateFirst ? [priv, quick] : [quick, priv]}</View>
       <Text style={[text.caption, { textAlign: 'center', marginTop: 16 }]}>30 s per turn · 60 s+ to deploy · rejoin within 30 s if disconnected</Text>
     </Screen>
