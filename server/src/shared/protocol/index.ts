@@ -1,9 +1,13 @@
 import { z } from 'zod';
 import { BOARD_SIZE_MAX, BOARD_SIZE_MIN, parseGameMode } from '../engine/config';
+import { MAX_PLAYERS, MIN_PLAYERS, TEAM_FORMATS } from '../engine/seats';
 import type { FinishReason, PlacedShip, PublicView, ShotEvent } from '../engine/types';
 
-/** v2: board sizes, shaped ships, obstacles and the new weapons. */
-export const PROTOCOL_VERSION = 2;
+/** v2: board sizes, shaped ships, obstacles and the new weapons. v3: private rooms for up to 6 players and teams. */
+export const PROTOCOL_VERSION = 3;
+/** v2 clients can still play 1v1 rooms; rooms for 3+ players need v3. */
+export const MIN_PROTOCOL_VERSION = 2;
+export const MULTIPLAYER_PROTOCOL_VERSION = 3;
 export const ROOM_NAME = 'battle';
 
 export const ClientMessage = {
@@ -14,6 +18,8 @@ export const ClientMessage = {
   Forfeit: 'forfeit',
   Emote: 'emote',
   Rematch: 'rematch',
+  /** Host starts a free-for-all room before it is full. */
+  Start: 'start',
 } as const;
 
 export const ServerMessage = {
@@ -56,6 +62,9 @@ export const joinOptionsSchema = z.object({
   /** Private rooms only; Quick Match always plays the standard table. */
   boardSize: z.number().int().min(BOARD_SIZE_MIN).max(BOARD_SIZE_MAX).optional(),
   obstacles: obstacleLevelSchema.optional(),
+  /** Private rooms only: seats in the room (team formats fix this to 4 or 6). */
+  maxPlayers: z.number().int().min(MIN_PLAYERS).max(MAX_PLAYERS).optional(),
+  teamFormat: z.enum(TEAM_FORMATS as [string, ...string[]]).optional(),
   code: z.string().optional(),
   profile: profileSchema.default({ playerId: '', name: 'Sailor', avatarId: 'captain', wins: 0, losses: 0 }),
 });
@@ -72,11 +81,14 @@ export const placeFleetSchema = z.object({
   mines: z.array(z.object({ x: coordInt, y: coordInt })).max(20).optional(),
 });
 export const readySchema = z.object({}).passthrough().optional();
-export const fireSchema = z.object({ x: coordInt, y: coordInt });
+/** Seat to fire at; omitted fires at the first enemy still afloat (the only one in 1v1). */
+const targetPlayerSchema = z.number().int().min(0).max(MAX_PLAYERS - 1).optional();
+export const fireSchema = z.object({ x: coordInt, y: coordInt, targetPlayer: targetPlayerSchema });
 export const useWeaponSchema = z.object({
   weaponId: z.string().min(1).max(32),
   x: coordInt,
   y: coordInt,
+  targetPlayer: targetPlayerSchema,
 });
 export const forfeitSchema = readySchema;
 export const rematchSchema = readySchema;
@@ -98,10 +110,14 @@ export interface ShotResultPayload {
 }
 export interface GameOverPayload {
   winnerSessionId: string;
-  /** Index of the winner from the receiving client's point of view: true when they won. */
+  /** Every member of the winning team. */
+  winnerSessionIds: string[];
+  /** True when the receiving client (or their team) won. */
   youWon: boolean;
+  /** Receiving client's final place (1 = winner). */
+  rank: number;
   reason: FinishReason;
-  /** Opponent's full fleet, revealed at game end. */
+  /** First opponent's full fleet, revealed at game end (all fleets are in `view.players`). */
   revealFleet: PlacedShip[];
   view: PublicView;
 }
@@ -132,7 +148,10 @@ export type ServerErrorCode =
   | 'WEAPON_NOT_READY'
   | 'WEAPON_UNKNOWN'
   | 'POWERUPS_DISABLED'
-  | 'BLOCKED';
+  | 'BLOCKED'
+  | 'INVALID_TARGET'
+  | 'NOT_HOST'
+  | 'NOT_ENOUGH_PLAYERS';
 
 export const ERROR_MESSAGES: Record<string, string> = {
   PROTOCOL_MISMATCH: 'Please update the app to play online.',
@@ -150,6 +169,9 @@ export const ERROR_MESSAGES: Record<string, string> = {
   WEAPON_UNKNOWN: 'Unknown power-up.',
   POWERUPS_DISABLED: 'Power-ups are disabled in Classic mode.',
   BLOCKED: "You can't fire at rocks or islands.",
+  INVALID_TARGET: 'Pick an enemy fleet to fire at.',
+  NOT_HOST: 'Only the host can start the battle.',
+  NOT_ENOUGH_PLAYERS: 'Need at least 2 players.',
 };
 
 // ---- Nicknames ----

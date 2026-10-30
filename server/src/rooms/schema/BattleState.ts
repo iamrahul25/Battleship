@@ -18,6 +18,12 @@ export const PlayerPublic = schema(
     /** defIds of ships this player has lost. */
     shipsSunk: t.array('string'),
     wantsRematch: t.boolean().default(false),
+    /** Team id once the battle starts (-1 = free-for-all / not started). */
+    team: t.number().default(-1),
+    /** Knocked out of a 3+ player battle; may still be watching. */
+    eliminated: t.boolean().default(false),
+    /** Final place once the game is finished (0 = not finished). */
+    rank: t.number().default(0),
   },
   'PlayerPublic',
 );
@@ -44,6 +50,12 @@ export const BattleState = schema(
     obstacles: t.string().default('none'),
     code: t.string().default(''),
     isPrivate: t.boolean().default(false),
+    /** Seats in the room (2 for Quick Match). */
+    maxPlayers: t.number().default(2),
+    /** ffa | 2v2 | 3v3 | 2v2v2 */
+    teamFormat: t.string().default('ffa'),
+    /** Who may start a free-for-all room early. */
+    hostSessionId: t.string().default(''),
   },
   'BattleState',
 );

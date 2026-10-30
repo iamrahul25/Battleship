@@ -1,4 +1,4 @@
-import type { Coord, Difficulty, FinishReason, GameMode, PlacedShip, PublicView, RuleSet, ShotEvent } from '@shared/engine';
+import type { Coord, Difficulty, FinishReason, GameMode, PlacedShip, PublicView, RuleSet, ShotEvent, TeamFormat } from '@shared/engine';
 import type { EmoteId } from '@shared/protocol';
 
 export interface PlayerCardInfo {
@@ -8,6 +8,23 @@ export interface PlayerCardInfo {
   losses: number;
   connected: boolean;
   isBot?: boolean;
+}
+
+/** A player in the room, for lobbies and 3+ player battles. */
+export interface SeatInfo extends PlayerCardInfo {
+  sessionId: string;
+  /** Engine seat; matches `PublicView.players[i].player` once the game has started. */
+  seat: number;
+  /** -1 when not in a team game (or not started). */
+  team: number;
+  eliminated: boolean;
+  /** Final place (0 until the game is finished). */
+  rank: number;
+  isHost: boolean;
+  isMe: boolean;
+  wantsRematch: boolean;
+  /** Local-clock epoch ms by which a disconnected player must return. */
+  reconnectDeadline: number | null;
 }
 
 export type ConnectionStatus = 'connected' | 'reconnecting' | 'disconnected';
@@ -27,12 +44,17 @@ export interface ControllerMeta {
   /** Private room code. */
   code?: string;
   rematch: { me: boolean; opponent: boolean };
+  /** Everyone in the room (including me), sorted by seat. */
+  seats: SeatInfo[];
+  maxPlayers: number;
+  teamFormat: TeamFormat;
+  isHost: boolean;
 }
 
 export type ControllerEvent =
   | { type: 'view'; view: PublicView }
   | { type: 'shot'; event: ShotEvent; view: PublicView }
-  | { type: 'gameOver'; youWon: boolean; reason: FinishReason; view: PublicView; revealFleet: PlacedShip[] }
+  | { type: 'gameOver'; youWon: boolean; reason: FinishReason; view: PublicView; revealFleet: PlacedShip[]; rank?: number }
   | { type: 'error'; code: string; message: string }
   | { type: 'meta'; meta: ControllerMeta }
   | { type: 'emote'; fromMe: boolean; id: EmoteId }
@@ -51,9 +73,12 @@ export interface GameController {
   /** `mines` moves the player's own mines; omitted keeps the dealt positions. */
   placeFleet(ships: PlacedShip[], mines?: Coord[]): void;
   ready(): void;
-  fire(target: Coord): void;
-  useWeapon(id: string, target: Coord): void;
+  /** `targetPlayer` is the seat to fire at (needed with 2+ enemies). */
+  fire(target: Coord, targetPlayer?: number): void;
+  useWeapon(id: string, target: Coord, targetPlayer?: number): void;
   forfeit(): void;
+  /** Host starts a free-for-all room before it is full. */
+  startEarly?(): void;
   rematch(): void;
   emote(id: EmoteId): void;
   /** Freeze timers (offline pause menu / app backgrounded). */

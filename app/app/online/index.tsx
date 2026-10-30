@@ -4,11 +4,13 @@ import { useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 import { clampBoardSize, type GameMode, type MatchSettings } from '@shared/engine';
 import { ROOM_CODE_LENGTH, roomCodeSchema } from '@shared/protocol';
+import { normalizeRoomSize, RoomSizeSettings } from '@/components/setup/RoomSizeSettings';
 import { TableSettings } from '@/components/setup/TableSettings';
 import { Button } from '@/components/ui/Button';
 import { Segmented } from '@/components/ui/controls';
 import { Panel } from '@/components/ui/Panel';
 import { Screen } from '@/components/ui/Screen';
+import type { RoomSize } from '@/game/controllers/OnlineGameController';
 import { ADVANCE } from '@/game/modes';
 import { useServerStatus } from '@/hooks/useServerStatus';
 import { useSettingsStore } from '@/stores/settings';
@@ -25,9 +27,12 @@ export default function OnlineMenu() {
   const defaultMode = useSettingsStore((s) => s.defaultMode);
   const savedSize = useSettingsStore((s) => s.boardSize);
   const savedObstacles = useSettingsStore((s) => s.obstacles);
+  const savedPlayers = useSettingsStore((s) => s.roomPlayers);
+  const savedFormat = useSettingsStore((s) => s.roomFormat);
   const setSettings = useSettingsStore((s) => s.set);
   const [roomMode, setRoomMode] = useState<GameMode>(defaultMode);
   const [table, setTable] = useState<MatchSettings>({ boardSize: clampBoardSize(savedSize), obstacles: savedObstacles });
+  const [size, setSize] = useState<RoomSize>(() => normalizeRoomSize({ maxPlayers: savedPlayers, teamFormat: savedFormat }));
   const [code, setCode] = useState('');
   const validCode = roomCodeSchema.safeParse(code).success;
 
@@ -43,8 +48,18 @@ export default function OnlineMenu() {
   const statusColor = online === null ? colors.steel400 : online ? colors.radarGreen : colors.signalRed;
 
   const createRoom = () => {
-    setSettings(table);
-    router.push({ pathname: '/online/room', params: { kind: 'create', mode: roomMode, boardSize: String(table.boardSize), obstacles: table.obstacles } });
+    setSettings({ ...table, roomPlayers: size.maxPlayers, roomFormat: size.teamFormat });
+    router.push({
+      pathname: '/online/room',
+      params: {
+        kind: 'create',
+        mode: roomMode,
+        boardSize: String(table.boardSize),
+        obstacles: table.obstacles,
+        maxPlayers: String(size.maxPlayers),
+        teamFormat: size.teamFormat,
+      },
+    });
   };
 
   return (
@@ -92,13 +107,14 @@ export default function OnlineMenu() {
             testID="create-room"
           />
           <Text style={[text.caption, { marginTop: 8 }]}>
-            Host a private match and share the room code with a friend. It uses the mode and table from New room settings below.
+            Host a private match for 2–6 players and share the room code. It uses the mode, players and table from New room settings below.
           </Text>
         </Panel>
 
         <Panel title="New room settings">
           <Text style={styles.section}>MODE</Text>
           <Segmented value={roomMode} onChange={setRoomMode} options={MODE_OPTIONS} />
+          <RoomSizeSettings value={size} onChange={setSize} />
           <TableSettings mode={roomMode} value={table} onChange={setTable} />
         </Panel>
       </View>

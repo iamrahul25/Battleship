@@ -4,10 +4,13 @@ import {
   type Coord,
   type FinishReason,
   getWeapon,
+  isMultiplayerView,
+  other,
   type PlacedShip,
   type PublicView,
   type ShotEvent,
   totalShips,
+  viewEnemies,
 } from '@shared/engine';
 import type { EmoteId } from '@shared/protocol';
 import { playSound, SoundManager } from '@/audio/SoundManager';
@@ -24,13 +27,15 @@ import { useUiStore } from './ui';
 export type FxItem =
   | { kind: 'view'; view: PublicView }
   | { kind: 'shot'; event: ShotEvent; view: PublicView }
-  | { kind: 'gameOver'; youWon: boolean; reason: FinishReason; view: PublicView; revealFleet: PlacedShip[] };
+  | { kind: 'gameOver'; youWon: boolean; reason: FinishReason; view: PublicView; revealFleet: PlacedShip[]; rank?: number };
 
 export interface ActiveFx {
   id: number;
   event: ShotEvent;
   /** True when the local player fired (animation plays on the enemy board). */
   mine: boolean;
+  /** Seat whose board the animation plays on. */
+  against: number;
   stage: 'flight' | 'impact';
   flightMs: number;
   impactMs: number;
@@ -44,6 +49,13 @@ export interface MatchResult {
   view: PublicView;
   medal: MedalTier | null;
   newBadges: string[];
+  /** Final place in 3+ player games. */
+  rank: number | null;
+}
+
+/** Name of a seat for stamps and banners. */
+function seatName(get: () => MatchState, seat: number): string {
+  return get().meta?.seats.find((s) => s.seat === seat)?.name ?? `Player ${seat + 1}`;
 }
 
 interface MatchState {
@@ -60,17 +72,31 @@ interface MatchState {
   /** Flips true a beat after game over so the final explosion is visible before navigating. */
   showResult: boolean;
   shake: { key: number; intensity: number };
-  banner: { key: number; mine: boolean } | null;
+  /** `name` is set in 3+ player games for other players' turns. */
+  banner: { key: number; mine: boolean; name?: string } | null;
   stamp: { key: number; text: string } | null;
-  coinFlip: { key: number; meFirst: boolean } | null;
+  coinFlip: { key: number; meFirst: boolean; firstName?: string } | null;
   emote: { key: number; id: EmoteId; fromMe: boolean } | null;
   closedReason: string | null;
+  /** Enemy seat the local player is aiming at in 3+ player games. */
+  targetPlayer: number | null;
 
   attach: (controller: GameController) => void;
   detach: () => void;
+  /** Leave a 3+ player battle after being knocked out, recording the loss. */
+  leaveAsSpectator: () => void;
   selectWeapon: (id: string) => void;
-  fire: (target: Coord) => void;
+  selectTarget: (seat: number) => void;
+  fire: (target: Coord, targetPlayer?: number) => void;
   dismissCoinFlip: () => void;
+}
+
+/** Keeps the aimed-at seat valid: falls back to the next enemy still afloat. */
+function validTarget(view: PublicView, current: number | null): number | null {
+  if (!isMultiplayerView(view)) return null;
+  const enemies = viewEnemies(view);
+  if (current !== null && enemies.some((e) => e.player === current)) return current;
+  return enemies[0]?.player ?? null;
 }
 
 const initial = {
@@ -90,6 +116,7 @@ const initial = {
   coinFlip: null,
   emote: null,
   closedReason: null,
+  targetPlayer: null,
 };
 
 let unsubscribe: (() => void) | null = null;
@@ -107,27 +134,39 @@ export const useMatchStore = create<MatchState>()((set, get) => {
     const prev = get().view;
     const patch: Partial<MatchState> = { view };
 
+    const multi = isMultiplayerView(view);
     if (view.phase === 'battle' && prev?.phase !== 'battle') {
       patch.battleStartedAt = Date.now();
-      patch.coinFlip = { key: keySeq++, meFirst: view.activePlayer === view.viewer };
+      patch.coinFlip = { key: keySeq++, meFirst: view.activePlayer === view.viewer, firstName: multi ? seatName(get, view.activePlayer) : undefined };
       SoundManager.playMusic('battle');
     }
     if (view.phase === 'placement' && prev && prev.phase !== 'placement') {
       // Rematch started.
-      Object.assign(patch, { result: null, showResult: false, battleStartedAt: null, selectedWeapon: 'standard', fx: null });
+      Object.assign(patch, { result: null, showResult: false, battleStartedAt: null, selectedWeapon: 'standard', fx: null, targetPlayer: null });
     }
     if (view.phase === 'battle' && prev?.phase === 'battle' && prev.activePlayer !== view.activePlayer) {
       const mine = view.activePlayer === view.viewer;
-      patch.banner = { key: keySeq++, mine };
+      patch.banner = { key: keySeq++, mine, name: multi && !mine ? seatName(get, view.activePlayer) : undefined };
       if (mine) {
         playSound('turn');
         haptic('light');
       }
     }
+    if (multi && prev?.phase === 'battle' && prev.players.length === view.players.length) {
+      const knockedOut = view.players.filter((s) => s.out && !prev.players[s.player]?.out);
+      if (knockedOut.length) {
+        const text = knockedOut.some((s) => s.player === view.viewer)
+          ? "YOU'RE OUT!"
+          : `${seatName(get, knockedOut[0].player).toUpperCase()} IS OUT!`;
+        patch.stamp = { key: keySeq++, text };
+      }
+    }
     if (view.phase === 'battle') {
-      SoundManager.setIntensity(view.me.shipsRemaining <= 1 || view.enemy.shipsRemaining <= 1);
+      const enemyLow = multi ? viewEnemies(view).every((e) => e.info.shipsRemaining <= 1) : view.enemy.shipsRemaining <= 1;
+      SoundManager.setIntensity(view.me.shipsRemaining <= 1 || enemyLow);
       const weapon = getWeapon(get().selectedWeapon);
       if (weapon && !canUseWeapon(view.me, weapon, view.rules)) patch.selectedWeapon = 'standard';
+      patch.targetPlayer = validTarget(view, get().targetPlayer);
     }
     set(patch);
   }
@@ -157,8 +196,10 @@ export const useMatchStore = create<MatchState>()((set, get) => {
     const flightMs = isSonar ? 0 : reduced ? 220 : isTorpedo ? torpedoMs : event.weaponId === 'airstrike' ? 750 : isArtillery ? 650 : 450;
     const impactMs = isSonar ? 1000 : sunk ? 1250 : isArtillery ? 1000 : hit ? 650 : isTorpedo && !event.results.length ? 300 : 520;
     const id = fxId++;
+    const against = event.against ?? other(event.by);
+    const multi = isMultiplayerView(view);
 
-    set({ fx: { id, event, mine, stage: flightMs ? 'flight' : 'impact', flightMs, impactMs }, awaiting: false });
+    set({ fx: { id, event, mine, against, stage: flightMs ? 'flight' : 'impact', flightMs, impactMs }, awaiting: false });
 
     if (isSonar) playSound('sonar');
     else if (isArtillery) playSound('artillery');
@@ -175,18 +216,23 @@ export const useMatchStore = create<MatchState>()((set, get) => {
         if (!reduced && (hit || isArtillery)) {
           set((st) => ({ shake: { key: st.shake.key + 1, intensity: sunk ? 10 : isArtillery ? 9 : 4 } }));
         }
-        if (sunk) set({ stamp: { key: keySeq++, text: mine ? 'SHIP SUNK!' : 'SHIP LOST!' } });
+        if (sunk) {
+          const text = mine ? 'SHIP SUNK!' : against === view.viewer ? 'SHIP LOST!' : `${seatName(get, against).toUpperCase()} LOST A SHIP`;
+          set({ stamp: { key: keySeq++, text } });
+        }
         if (mine && hit) unlockBadges(['first_blood']);
         if (event.mineTriggered) {
           playSound('artillery');
           haptic('heavy');
           if (!reduced) set((st) => ({ shake: { key: st.shake.key + 1, intensity: 8 } }));
-          if (!sunk) set({ stamp: { key: keySeq++, text: mine ? 'MINE! TURN LOST' : 'ENEMY HIT A MINE' } });
+          const who = multi ? `${seatName(get, event.by).toUpperCase()} HIT A MINE` : 'ENEMY HIT A MINE';
+          if (!sunk) set({ stamp: { key: keySeq++, text: mine ? 'MINE! TURN LOST' : who } });
         }
       }
       if (event.turnSkipped !== undefined) {
         // The mine penalty kept the turn with the shooter, so the usual turn-change banner never fires.
-        set({ banner: { key: keySeq++, mine: view.activePlayer === view.viewer } });
+        const meNext = view.activePlayer === view.viewer;
+        set({ banner: { key: keySeq++, mine: meNext, name: multi && !meNext ? seatName(get, view.activePlayer) : undefined } });
         if (view.activePlayer === view.viewer) playSound('turn');
       }
       const controller = get().controller;
@@ -214,30 +260,36 @@ export const useMatchStore = create<MatchState>()((set, get) => {
     return fresh;
   }
 
-  function runGameOver(item: Extract<FxItem, { kind: 'gameOver' }>) {
-    applyView(item.view);
+  function buildSummary(view: PublicView, won: boolean, reason: FinishReason): MatchSummary {
     const s = get();
     const controller = s.controller;
-    const view = item.view;
     const sunkWithArtillery = view.log.some(
       (e) => e.by === view.viewer && e.weaponId === 'artillery' && e.results.some((r) => r.result === 'sunk'),
     );
-    const summary: MatchSummary = {
+    return {
       kind: controller?.kind ?? 'bot',
       difficulty: controller?.difficulty,
       mode: controller?.mode ?? 'advance',
-      won: item.youWon,
-      reason: item.reason,
+      won,
+      reason,
       shots: view.me.shotsFired,
       hits: view.me.hits,
-      shipsSunk: view.enemy.shipsLost.length,
+      shipsSunk: view.me.shipsSunk ?? view.enemy.shipsLost.length,
       shipsLost: view.me.shipsLost.length,
       shipsTotal: totalShips(view.rules),
       powerUpsUsed: view.me.powerUpsUsed,
       sunkWithArtillery,
       durationMs: s.battleStartedAt ? Date.now() - s.battleStartedAt : 0,
-      opponentName: s.meta?.opponent?.name ?? 'Opponent',
+      opponentName: isMultiplayerView(view) ? `${view.players.length}-player battle` : (s.meta?.opponent?.name ?? 'Opponent'),
     };
+  }
+
+  function runGameOver(item: Extract<FxItem, { kind: 'gameOver' }>) {
+    applyView(item.view);
+    const controller = get().controller;
+    const view = item.view;
+    const summary = buildSummary(view, item.youWon, item.reason);
+    const rank = isMultiplayerView(view) ? (item.rank ?? view.standings?.find((x) => x.player === view.viewer)?.rank ?? null) : null;
     const stats = useStatsStore.getState().record(summary);
     const newBadges = unlockBadges(earnedAchievements(summary, stats));
     if (controller?.kind === 'bot') void clearSavedGame();
@@ -251,6 +303,7 @@ export const useMatchStore = create<MatchState>()((set, get) => {
         view,
         medal: item.youWon || summary.shots > 0 ? medalFor(summary.shots, summary.hits) : null,
         newBadges,
+        rank,
       },
       awaiting: false,
     });
@@ -302,16 +355,30 @@ export const useMatchStore = create<MatchState>()((set, get) => {
       get().controller?.dispose();
       set({ ...initial });
     },
+    leaveAsSpectator: () => {
+      const view = get().view;
+      const out = view?.players[view.viewer]?.out;
+      if (view && out && view.phase !== 'finished' && !get().result) {
+        useStatsStore.getState().record(buildSummary(view, false, out));
+      }
+      get().detach();
+    },
     selectWeapon: (id) => set({ selectedWeapon: id }),
-    fire: (target) => {
+    selectTarget: (seat) => {
+      const view = get().view;
+      if (!view || validTarget(view, seat) !== seat) return;
+      set({ targetPlayer: seat });
+    },
+    fire: (target, targetPlayer) => {
       const s = get();
       const view = s.view;
       if (!s.controller || !view || s.awaiting || s.fx || s.queue.length) return;
       if (view.phase !== 'battle' || view.activePlayer !== view.viewer) return;
-      set({ awaiting: true });
-      if (s.selectedWeapon === 'standard') s.controller.fire(target);
+      const seat = isMultiplayerView(view) ? (targetPlayer ?? s.targetPlayer ?? undefined) : undefined;
+      set({ awaiting: true, ...(seat !== undefined ? { targetPlayer: seat } : {}) });
+      if (s.selectedWeapon === 'standard') s.controller.fire(target, seat);
       else {
-        s.controller.useWeapon(s.selectedWeapon, target);
+        s.controller.useWeapon(s.selectedWeapon, target, seat);
         set({ selectedWeapon: 'standard' });
       }
       // Safety valve so a lost message can never lock the board forever.

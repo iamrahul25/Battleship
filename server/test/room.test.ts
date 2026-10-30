@@ -3,7 +3,7 @@ import type { Room as SDKRoom } from '@colyseus/sdk';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { createGameServer } from '../src/app';
 import type { BattleRoom } from '../src/rooms/BattleRoom';
-import { isStraightShip, ONLINE_PLACEMENT_TIME_MS, type PlacedShip, type PublicView } from '../src/shared/engine';
+import { getPublicView, isStraightShip, ONLINE_PLACEMENT_TIME_MS, type PlacedShip, type PublicView } from '../src/shared/engine';
 import { PROTOCOL_VERSION, ROOM_NAME } from '../src/shared/protocol';
 import { rowFleet } from './helpers';
 
@@ -367,6 +367,150 @@ describe('battle', () => {
     a.room.send('emote', { id: 'salute' });
     const e = await b.waitFor('emote');
     expect(e).toEqual({ sessionId: a.room.sessionId, id: 'salute' });
+  });
+});
+
+describe('multiplayer rooms', () => {
+  const NAMES = ['Alice', 'Bobby', 'Carol', 'David', 'Ellie', 'Frank'];
+
+  /** Host creates a private 10×10 room; `guests` more players join by id. */
+  async function openRoom(guests: number, extra: Record<string, unknown> = {}) {
+    const host = record(await colyseus.sdk.create(ROOM_NAME, join(NAMES[0], { private: true, boardSize: 10, obstacles: 'none', ...extra })));
+    const players = [host];
+    for (let i = 1; i <= guests; i++) players.push(record(await colyseus.sdk.joinById(host.room.roomId, join(NAMES[i]))));
+    const server = colyseus.getRoomById<BattleRoom>(host.room.roomId);
+    return { players, server };
+  }
+
+  async function deployAll(players: ReturnType<typeof record>[]) {
+    for (const p of players) {
+      await p.waitFor('sync', (s) => s.view.phase === 'placement');
+      p.room.send('place_fleet', fleetPayload(rowFleet()));
+      await p.waitFor('your_fleet');
+      p.room.send('ready', {});
+    }
+    for (const p of players) await p.waitFor('sync', (s) => s.view.phase === 'battle');
+  }
+
+  const seatOf = (server: BattleRoom, p: ReturnType<typeof record>) => server.seatOf(p.room.sessionId)!.index;
+  const active = (server: BattleRoom, players: ReturnType<typeof record>[]) =>
+    players.find((p) => p.room.sessionId === server.state.activeSessionId)!;
+
+  it('auto-starts a 3-player free-for-all when full and rotates turns', async () => {
+    const { players, server } = await openRoom(2, { maxPlayers: 3 });
+    expect(server.maxClients).toBe(3);
+    expect(server.state.maxPlayers).toBe(3);
+    await deployAll(players);
+    expect(server.game!.players).toHaveLength(3);
+
+    const shooter = active(server, players);
+    const me = seatOf(server, shooter);
+    const target = (me + 1) % 3;
+    shooter.room.send('fire', { x: 9, y: 9, targetPlayer: target });
+    const shot = await shooter.waitFor('shot_result');
+    expect(shot.event.against).toBe(target);
+    expect(shot.view.players).toHaveLength(3);
+    await sleep(20);
+    expect(server.game!.activePlayer).toBe((me + 1) % 3);
+
+    const next = active(server, players);
+    next.room.send('fire', { x: 9, y: 9, targetPlayer: seatOf(server, next) });
+    expect((await next.waitFor('error')).code).toBe('INVALID_TARGET');
+  });
+
+  it('only the host can start a free-for-all early', async () => {
+    const { players, server } = await openRoom(1, { maxPlayers: 5 });
+    await sleep(50);
+    expect(server.state.phase).toBe('waiting');
+    expect(server.state.hostSessionId).toBe(players[0].room.sessionId);
+    players[1].room.send('start', {});
+    expect((await players[1].waitFor('error')).code).toBe('NOT_HOST');
+    players[0].room.send('start', {});
+    await players[0].waitFor('sync', (s) => s.view.phase === 'placement');
+    expect(server.game!.players).toHaveLength(2);
+    expect(server.locked).toBe(true);
+  });
+
+  it('hands the host role on when the host leaves the lobby', async () => {
+    const { players, server } = await openRoom(1, { maxPlayers: 4 });
+    await players[0].room.leave(true);
+    await sleep(50);
+    expect(server.state.hostSessionId).toBe(players[1].room.sessionId);
+  });
+
+  it('2v2 shuffles teams, interleaves turns and protects allies', async () => {
+    const { players, server } = await openRoom(3, { teamFormat: '2v2', maxPlayers: 6, seed: 5 });
+    expect(server.maxClients).toBe(4);
+    await deployAll(players);
+    const teams = server.game!.teams!;
+    expect([...teams].sort()).toEqual([0, 0, 1, 1]);
+    for (const p of players) expect(server.state.players.get(p.room.sessionId)!.team).toBe(teams[seatOf(server, p)]);
+
+    const shooter = active(server, players);
+    const me = seatOf(server, shooter);
+    const ally = teams.findIndex((t, i) => i !== me && t === teams[me]);
+    shooter.room.send('fire', { x: 9, y: 9, targetPlayer: ally });
+    expect((await shooter.waitFor('error')).code).toBe('INVALID_TARGET');
+
+    const sync = getPublicView(server.game!, me);
+    expect(sync.teamGame).toBe(true);
+    expect(sync.players[ally].board.ships).toHaveLength(5);
+    for (const s of sync.players) if (teams[s.player] !== teams[me]) expect(s.board.ships).toHaveLength(0);
+  });
+
+  it('a player leaving a 3-player battle is knocked out and the rest play on', async () => {
+    const { players, server } = await openRoom(2, { maxPlayers: 3 });
+    await deployAll(players);
+    const leaver = players.find((p) => p.room.sessionId !== server.state.activeSessionId)!;
+    const leaverSeat = seatOf(server, leaver);
+    await leaver.room.leave(true);
+    await sleep(80);
+    expect(server.state.phase).toBe('battle');
+    expect(server.game!.players[leaverSeat].out).toBe('forfeit');
+    expect(server.state.players.get(leaver.room.sessionId)!.eliminated).toBe(true);
+
+    const rest = players.filter((p) => p !== leaver);
+    const quitter = rest.find((p) => p.room.sessionId !== server.state.activeSessionId)!;
+    const winner = rest.find((p) => p !== quitter)!;
+    quitter.room.send('forfeit', {});
+    const over = await winner.waitFor('game_over');
+    expect(over.youWon).toBe(true);
+    expect(over.rank).toBe(1);
+    expect(over.winnerSessionIds).toEqual([winner.room.sessionId]);
+    const lost = await quitter.waitFor('game_over');
+    expect(lost.youWon).toBe(false);
+    expect(lost.rank).toBe(2);
+    expect(server.state.players.get(leaver.room.sessionId)!.rank).toBe(3);
+  });
+
+  it('rematch restarts with the players still in the room', async () => {
+    const { players, server } = await openRoom(2, { maxPlayers: 3 });
+    await deployAll(players);
+    await players[2].room.leave(true);
+    await sleep(50);
+    players[0].room.send('forfeit', {});
+    await players[1].waitFor('game_over');
+    players[0].messages.length = 0;
+    players[0].room.send('rematch', {});
+    players[1].room.send('rematch', {});
+    await players[0].waitFor('sync', (s) => s.view.phase === 'placement');
+    expect(server.game!.players).toHaveLength(2);
+    expect(server.seats.map((s) => s.index).sort()).toEqual([0, 1]);
+    expect(server.state.players.size).toBe(2);
+  });
+
+  it('older clients can join 1v1 rooms but not rooms for 3+ players', async () => {
+    const big = await colyseus.sdk.create(ROOM_NAME, join('Alice', { private: true, maxPlayers: 4 }));
+    await expect(colyseus.sdk.joinById(big.roomId, join('Oldie', { protocolVersion: 2 }))).rejects.toThrow();
+    const duel = await colyseus.sdk.create(ROOM_NAME, join('Alice', { private: true }));
+    const old = await colyseus.sdk.joinById(duel.roomId, join('Oldie', { protocolVersion: 2 }));
+    expect(old.roomId).toBe(duel.roomId);
+  });
+
+  it('quick match ignores multiplayer options', async () => {
+    const { server } = await startMatch({ maxPlayers: 6, teamFormat: '3v3' });
+    expect(server.maxClients).toBe(2);
+    expect(server.state.teamFormat).toBe('ffa');
   });
 });
 

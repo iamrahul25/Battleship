@@ -8,10 +8,12 @@ import {
   matchRules,
   OBSTACLE_LEVELS,
   parseGameMode,
+  parseTeamFormat,
   type PlacedShip,
   type PublicView,
   type RuleSet,
   STANDARD_MATCH_SETTINGS,
+  type TeamFormat,
 } from '@shared/engine';
 import {
   ClientMessage,
@@ -31,11 +33,17 @@ import {
 } from '@shared/protocol';
 import { getHttpUrl, getServerUrl } from '@/net/serverUrl';
 import { removeKey, writeJson } from '@/platform/storage';
-import { type ControllerMeta, Emitter, type GameController, type MetaPhase, type PlayerCardInfo } from './types';
+import { type ControllerMeta, Emitter, type GameController, type MetaPhase, type SeatInfo } from './types';
+
+/** Room size and team split chosen by the host. */
+export interface RoomSize {
+  maxPlayers: number;
+  teamFormat: TeamFormat;
+}
 
 export type OnlineJoin =
   | { kind: 'quick'; mode: GameMode }
-  | { kind: 'create'; mode: GameMode; settings: MatchSettings }
+  | { kind: 'create'; mode: GameMode; settings: MatchSettings; size: RoomSize }
   | { kind: 'code'; code: string };
 
 export class OnlineError extends Error {
@@ -47,15 +55,10 @@ export class OnlineError extends Error {
   }
 }
 
-interface PlayerSnapshot extends PlayerCardInfo {
-  sessionId: string;
-  reconnectDeadline: number;
-  wantsRematch: boolean;
-}
-
 /** Shape of the synced Colyseus schema as seen by the client (decoded via reflection). */
 interface SyncedPlayer {
   sessionId: string;
+  seat: number;
   name: string;
   avatarId: string;
   wins: number;
@@ -63,6 +66,9 @@ interface SyncedPlayer {
   connected: boolean;
   reconnectDeadline: number;
   wantsRematch: boolean;
+  team?: number;
+  eliminated?: boolean;
+  rank?: number;
 }
 interface SyncedState {
   phase: string;
@@ -74,6 +80,9 @@ interface SyncedState {
   boardSize: number;
   obstacles: string;
   code: string;
+  maxPlayers?: number;
+  teamFormat?: string;
+  hostSessionId?: string;
 }
 
 /** Joins resolve on the handshake; the room's mode and table only arrive with the first full state. */
@@ -166,7 +175,7 @@ export class OnlineGameController implements GameController {
         room = await withTimeout(client.joinOrCreate(ROOM_NAME, { ...base, mode: join.mode }), JOIN_TIMEOUT_MS);
       } else if (join.kind === 'create') {
         room = await withTimeout(
-          client.create(ROOM_NAME, { ...base, mode: join.mode, private: true, ...join.settings }),
+          client.create(ROOM_NAME, { ...base, mode: join.mode, private: true, ...join.settings, ...join.size }),
           JOIN_TIMEOUT_MS,
         );
       } else {
@@ -210,7 +219,7 @@ export class OnlineGameController implements GameController {
       }),
       room.onMessage<GameOverPayload>(ServerMessage.GameOver, (p) => {
         this.view = p.view;
-        this.emitter.emit({ type: 'gameOver', youWon: p.youWon, reason: p.reason, view: p.view, revealFleet: p.revealFleet });
+        this.emitter.emit({ type: 'gameOver', youWon: p.youWon, reason: p.reason, view: p.view, revealFleet: p.revealFleet, rank: p.rank });
       }),
       room.onMessage<ErrorPayload>(ServerMessage.Error, (p) => this.emitter.emit({ type: 'error', code: p.code, message: p.message })),
       room.onMessage<EmoteBroadcast>(ServerMessage.Emote, (p) =>
@@ -275,25 +284,28 @@ export class OnlineGameController implements GameController {
     }
   }
 
-  private players(): { me: PlayerSnapshot | null; opponent: PlayerSnapshot | null } {
+  private seats(): SeatInfo[] {
     const state = this.room.state as SyncedState | undefined;
-    let me: PlayerSnapshot | null = null;
-    let opponent: PlayerSnapshot | null = null;
+    const out: SeatInfo[] = [];
     state?.players?.forEach((p, id) => {
-      const snap: PlayerSnapshot = {
+      out.push({
         sessionId: id,
+        seat: p.seat,
         name: p.name,
         avatarId: p.avatarId,
         wins: p.wins,
         losses: p.losses,
         connected: p.connected,
-        reconnectDeadline: p.reconnectDeadline,
+        reconnectDeadline: !p.connected && p.reconnectDeadline ? this.toLocal(p.reconnectDeadline) : null,
         wantsRematch: p.wantsRematch,
-      };
-      if (id === this.room.sessionId) me = snap;
-      else opponent = snap;
+        team: p.team ?? -1,
+        eliminated: p.eliminated ?? false,
+        rank: p.rank ?? 0,
+        isHost: !!state.hostSessionId && id === state.hostSessionId,
+        isMe: id === this.room.sessionId,
+      });
     });
-    return { me, opponent };
+    return out.sort((a, b) => a.seat - b.seat);
   }
 
   private toLocal(serverMs: number) {
@@ -306,7 +318,10 @@ export class OnlineGameController implements GameController {
 
   getMeta(): ControllerMeta {
     const state = this.room.state as SyncedState | undefined;
-    const { me, opponent } = this.players();
+    const seats = this.seats();
+    const me = seats.find((s) => s.isMe) ?? null;
+    const others = seats.filter((s) => !s.isMe);
+    const opponent = others[0] ?? null;
     const phase = (state?.phase ?? 'waiting') as MetaPhase;
     return {
       phase,
@@ -315,9 +330,13 @@ export class OnlineGameController implements GameController {
       deadline: state && !state.paused ? this.toLocal(state.turnDeadline) : null,
       paused: state?.paused ?? false,
       connection: this.connection,
-      opponentReconnectDeadline: opponent && !opponent.connected ? this.toLocal(opponent.reconnectDeadline) : null,
+      opponentReconnectDeadline: opponent?.reconnectDeadline ?? null,
       code: state?.code || undefined,
-      rematch: { me: me?.wantsRematch ?? false, opponent: opponent?.wantsRematch ?? false },
+      rematch: { me: me?.wantsRematch ?? false, opponent: others.some((s) => s.wantsRematch) },
+      seats,
+      maxPlayers: state?.maxPlayers || 2,
+      teamFormat: parseTeamFormat(state?.teamFormat),
+      isHost: me?.isHost ?? false,
     };
   }
 
@@ -336,12 +355,16 @@ export class OnlineGameController implements GameController {
     this.room.send(ClientMessage.Ready, {});
   }
 
-  fire(target: Coord) {
-    this.room.send(ClientMessage.Fire, { x: target.x, y: target.y });
+  fire(target: Coord, targetPlayer?: number) {
+    this.room.send(ClientMessage.Fire, { x: target.x, y: target.y, targetPlayer });
   }
 
-  useWeapon(weaponId: string, target: Coord) {
-    this.room.send(ClientMessage.UseWeapon, { weaponId, x: target.x, y: target.y });
+  useWeapon(weaponId: string, target: Coord, targetPlayer?: number) {
+    this.room.send(ClientMessage.UseWeapon, { weaponId, x: target.x, y: target.y, targetPlayer });
+  }
+
+  startEarly() {
+    this.room.send(ClientMessage.Start, {});
   }
 
   forfeit() {
