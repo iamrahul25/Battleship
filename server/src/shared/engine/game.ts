@@ -17,6 +17,17 @@ import { CHARGE, MAX_CONSECUTIVE_TIMEOUTS } from './config';
 import { generateObstacles, obstacleFields, relocateMines, visibleObstacles } from './obstacles';
 import { isFleetComplete, randomFleet, validateFleet } from './placement';
 import { createRng, type Rng } from './rng';
+import {
+  areAllies,
+  enemiesOf,
+  interleavedOrder,
+  isAlive,
+  livingTeams,
+  seatsOf,
+  standings,
+  teamOf,
+  turnOrderOf,
+} from './seats';
 import type {
   Action,
   ActionResult,
@@ -38,6 +49,7 @@ import type {
 } from './types';
 import { canUseWeapon, getWeapon, patternCells, torpedoHasTarget, torpedoLane } from './weapons';
 
+/** The opponent in a 1v1 game. */
 export const other = (p: PlayerIndex): PlayerIndex => (p === 0 ? 1 : 0);
 
 export function createPlayerState(rules: RuleSet, rng?: Rng): PlayerState {
@@ -55,12 +67,25 @@ export function createPlayerState(rules: RuleSet, rng?: Rng): PlayerState {
   };
 }
 
-export function createGame(rules: RuleSet, seed: number): GameState {
+export interface GameSetup {
+  /** Number of seats (default 2). */
+  players?: number;
+  /** Team id per seat; omitted for free-for-all. */
+  teams?: number[];
+}
+
+export function createGame(rules: RuleSet, seed: number, setup: GameSetup = {}): GameState {
   const rng = createRng(seed);
+  const count = setup.teams?.length ?? setup.players ?? 2;
+  const players = Array.from({ length: count }, () => createPlayerState(rules, rng));
+  const seats = players.map((_, i) => i);
   return {
     rules,
     phase: 'placement',
-    players: [createPlayerState(rules, rng), createPlayerState(rules, rng)],
+    players,
+    turnOrder: setup.teams ? interleavedOrder(setup.teams) : seats,
+    ...(setup.teams ? { teams: setup.teams.slice() } : {}),
+    eliminated: [],
     activePlayer: 0,
     turnNumber: 0,
     winner: null,
@@ -87,7 +112,8 @@ function startDraft(state: GameState): Draft {
   return {
     state: {
       ...state,
-      players: [{ ...state.players[0] }, { ...state.players[1] }],
+      players: state.players.map((p) => ({ ...p })),
+      eliminated: (state.eliminated ?? []).slice(),
       log: state.log.slice(),
     },
     events: [],
@@ -105,52 +131,92 @@ function setPlayer(d: Draft, idx: PlayerIndex, patch: Partial<PlayerState>) {
   d.state.players[idx] = { ...d.state.players[idx], ...patch };
 }
 
-function endGame(d: Draft, winner: PlayerIndex, reason: FinishReason) {
+/** The surviving team wins, including teammates who were knocked out along the way. */
+function endGame(d: Draft, reason: FinishReason) {
+  const team = livingTeams(d.state)[0];
+  const winners = team === undefined ? [] : seatsOf(d.state).filter((p) => teamOf(d.state, p) === team);
   d.state.phase = 'finished';
-  d.state.winner = winner;
+  d.state.winner = winners[0] ?? null;
+  d.state.winners = winners;
   d.state.finishReason = reason;
-  d.events.push({ type: 'gameOver', winner, reason });
+  d.events.push({ type: 'gameOver', winner: winners[0] ?? -1, winners, reason });
+}
+
+/** Starts the battle once every seat still in the game is ready. */
+function maybeStartBattle(d: Draft) {
+  if (d.state.phase !== 'placement') return;
+  const living = turnOrderOf(d.state).filter((p) => isAlive(d.state, p));
+  if (!living.every((p) => d.state.players[p].ready)) return;
+  const first = living[d.rng.int(living.length)];
+  d.state.phase = 'battle';
+  d.state.activePlayer = first;
+  d.state.turnNumber = 1;
+  d.events.push({ type: 'battleStart', firstPlayer: first });
 }
 
 function markReady(d: Draft, player: PlayerIndex) {
   setPlayer(d, player, { ready: true });
   d.events.push({ type: 'ready', player });
-  if (d.state.players[0].ready && d.state.players[1].ready) {
-    const first = d.rng.int(2) as PlayerIndex;
-    d.state.phase = 'battle';
-    d.state.activePlayer = first;
-    d.state.turnNumber = 1;
-    d.events.push({ type: 'battleStart', firstPlayer: first });
+  maybeStartBattle(d);
+}
+
+/** Hands the turn to the next seat in rotation, skipping knocked-out seats and serving mine penalties. */
+function advanceTurn(d: Draft, from: PlayerIndex, ev?: ShotEvent) {
+  d.state.turnNumber += 1;
+  const order = turnOrderOf(d.state);
+  let idx = order.indexOf(from);
+  for (let i = 0; i < order.length * 2; i++) {
+    idx = (idx + 1) % order.length;
+    const p = order[idx];
+    if (!isAlive(d.state, p)) continue;
+    if (d.state.players[p].skipNextTurn) {
+      setPlayer(d, p, { skipNextTurn: false });
+      if (ev && ev.turnSkipped === undefined) ev.turnSkipped = p;
+      continue;
+    }
+    d.state.activePlayer = p;
+    return;
   }
+}
+
+/** Knocks a seat out. Returns true when that ended the game. */
+function eliminate(d: Draft, player: PlayerIndex, reason: FinishReason): boolean {
+  if (!isAlive(d.state, player)) return false;
+  setPlayer(d, player, { out: reason, skipNextTurn: false });
+  d.state.eliminated = [...(d.state.eliminated ?? []), player];
+  d.events.push({ type: 'eliminated', player, reason });
+  if (livingTeams(d.state).length <= 1) {
+    endGame(d, reason);
+    return true;
+  }
+  if (d.state.phase === 'battle' && d.state.activePlayer === player) advanceTurn(d, player);
+  else maybeStartBattle(d);
+  return false;
+}
+
+/** The seat to fire at: the requested one, or the first enemy still afloat. */
+function resolveTarget(state: GameState, player: PlayerIndex, requested?: PlayerIndex): PlayerIndex | null {
+  const enemies = enemiesOf(state, player);
+  if (requested === undefined) return enemies[0] ?? null;
+  return enemies.includes(requested) ? requested : null;
 }
 
 function addCharge(p: PlayerState, amount: number): number {
   return Math.min(CHARGE.max, p.charge + amount);
 }
 
-function pushShot(d: Draft, shot: Omit<ShotEvent, 'turnNumber'>) {
+function pushShot(d: Draft, shot: Omit<ShotEvent, 'turnNumber'> & { against: PlayerIndex }) {
   const ev: ShotEvent = { ...shot, turnNumber: d.state.turnNumber };
   d.state.log.push(ev);
   d.events.push({ type: 'shot', shot: ev });
-  const defender = other(shot.by);
-  if (isFleetSunk(d.state.players[defender].board)) {
-    endGame(d, shot.by, 'sunk');
+  if (isFleetSunk(d.state.players[shot.against].board) && eliminate(d, shot.against, 'sunk')) {
     ev.turnPassed = false;
     return;
   }
-  if (ev.turnPassed) {
-    d.state.turnNumber += 1;
-    if (d.state.players[defender].skipNextTurn) {
-      setPlayer(d, defender, { skipNextTurn: false });
-      ev.turnSkipped = defender;
-    } else {
-      d.state.activePlayer = defender;
-    }
-  }
+  if (ev.turnPassed) advanceTurn(d, shot.by, ev);
 }
 
-function fireStandard(d: Draft, player: PlayerIndex, target: Coord, auto: boolean) {
-  const defender = other(player);
+function fireStandard(d: Draft, player: PlayerIndex, defender: PlayerIndex, target: Coord, auto: boolean) {
   const resolved = resolveShot(d.state.players[defender].board, target, d.state.rules);
   setPlayer(d, defender, { board: resolved.board });
 
@@ -178,6 +244,7 @@ function fireStandard(d: Draft, player: PlayerIndex, target: Coord, auto: boolea
 
   pushShot(d, {
     by: player,
+    against: defender,
     weaponId: 'standard',
     target,
     results: [resolved.result],
@@ -198,7 +265,7 @@ function checkTurn(state: GameState, player: PlayerIndex): GameErrorCode | null 
 export function applyAction(state: GameState, action: Action): ActionResult {
   switch (action.type) {
     case 'PLACE_FLEET': {
-      if (state.phase !== 'placement') return fail(state, 'WRONG_PHASE');
+      if (state.phase !== 'placement' || !isAlive(state, action.player)) return fail(state, 'WRONG_PHASE');
       const p = state.players[action.player];
       if (p.ready) return fail(state, 'ALREADY_READY');
       const obstacles = action.mines ? relocateMines(p.board, action.mines) : p.board.obstacles;
@@ -216,7 +283,7 @@ export function applyAction(state: GameState, action: Action): ActionResult {
     }
 
     case 'READY': {
-      if (state.phase !== 'placement') return fail(state, 'WRONG_PHASE');
+      if (state.phase !== 'placement' || !isAlive(state, action.player)) return fail(state, 'WRONG_PHASE');
       const p = state.players[action.player];
       if (p.ready) return fail(state, 'ALREADY_READY');
       if (!isFleetComplete(p.board, state.rules)) return fail(state, 'FLEET_INCOMPLETE');
@@ -228,12 +295,14 @@ export function applyAction(state: GameState, action: Action): ActionResult {
     case 'FIRE': {
       const err = checkTurn(state, action.player);
       if (err) return fail(state, err);
-      const board = state.players[other(action.player)].board;
+      const defender = resolveTarget(state, action.player, action.targetPlayer);
+      if (defender === null) return fail(state, 'INVALID_TARGET');
+      const board = state.players[defender].board;
       if (!inBounds(board, action.target)) return fail(state, 'OUT_OF_BOUNDS');
       if (isSolidObstacle(obstacleAt(board, action.target))) return fail(state, 'BLOCKED');
       if (!isTargetable(board, action.target)) return fail(state, 'ALREADY_FIRED');
       const d = startDraft(state);
-      fireStandard(d, action.player, action.target, false);
+      fireStandard(d, action.player, defender, action.target, false);
       return finishDraft(d);
     }
 
@@ -242,11 +311,14 @@ export function applyAction(state: GameState, action: Action): ActionResult {
       if (err) return fail(state, err);
       const weapon = getWeapon(action.weaponId);
       if (!weapon) return fail(state, 'WEAPON_UNKNOWN');
-      if (weapon.id === 'standard') return applyAction(state, { type: 'FIRE', player: action.player, target: action.target });
+      if (weapon.id === 'standard') {
+        return applyAction(state, { type: 'FIRE', player: action.player, target: action.target, targetPlayer: action.targetPlayer });
+      }
       if (!state.rules.powerUpsEnabled) return fail(state, 'POWERUPS_DISABLED');
       const attacker = state.players[action.player];
       if (!canUseWeapon(attacker, weapon, state.rules)) return fail(state, 'WEAPON_NOT_READY');
-      const defenderIdx = other(action.player);
+      const defenderIdx = resolveTarget(state, action.player, action.targetPlayer);
+      if (defenderIdx === null) return fail(state, 'INVALID_TARGET');
       const board = state.players[defenderIdx].board;
       if (!inBounds(board, action.target)) return fail(state, 'OUT_OF_BOUNDS');
 
@@ -262,6 +334,7 @@ export function applyAction(state: GameState, action: Action): ActionResult {
         setPlayer(d, action.player, usage);
         pushShot(d, {
           by: action.player,
+          against: defenderIdx,
           weaponId: weapon.id,
           target: action.target,
           results: [],
@@ -329,6 +402,7 @@ export function applyAction(state: GameState, action: Action): ActionResult {
       });
       pushShot(d, {
         by: action.player,
+        against: defenderIdx,
         weaponId: weapon.id,
         target: action.target,
         results,
@@ -341,6 +415,7 @@ export function applyAction(state: GameState, action: Action): ActionResult {
     }
 
     case 'TIMEOUT': {
+      if (!isAlive(state, action.player)) return fail(state, 'WRONG_PHASE');
       if (state.phase === 'placement') {
         const p = state.players[action.player];
         if (p.ready) return fail(state, 'ALREADY_READY');
@@ -359,18 +434,20 @@ export function applyAction(state: GameState, action: Action): ActionResult {
       const timeouts = state.players[action.player].consecutiveTimeouts + 1;
       setPlayer(d, action.player, { consecutiveTimeouts: timeouts });
       if (timeouts >= MAX_CONSECUTIVE_TIMEOUTS) {
-        endGame(d, other(action.player), 'timeout');
+        eliminate(d, action.player, 'timeout');
         return finishDraft(d);
       }
-      const targets = legalTargets(state.players[other(action.player)].board);
-      fireStandard(d, action.player, d.rng.pick(targets), true);
+      const enemies = enemiesOf(state, action.player);
+      const defender = enemies.length === 1 ? enemies[0] : d.rng.pick(enemies);
+      const targets = legalTargets(state.players[defender].board);
+      fireStandard(d, action.player, defender, d.rng.pick(targets), true);
       return finishDraft(d);
     }
 
     case 'FORFEIT': {
-      if (state.phase === 'finished') return fail(state, 'WRONG_PHASE');
+      if (state.phase === 'finished' || !isAlive(state, action.player)) return fail(state, 'WRONG_PHASE');
       const d = startDraft(state);
-      endGame(d, other(action.player), action.reason ?? 'forfeit');
+      eliminate(d, action.player, action.reason ?? 'forfeit');
       return finishDraft(d);
     }
   }
@@ -388,13 +465,20 @@ export function redactBoard(board: Board, reveal: boolean): TargetView {
   };
 }
 
-/** Strips which ship was hit from the attacker's perspective (only sunk ships are identified). */
-export function redactShotEvent(event: ShotEvent, viewer: PlayerIndex): ShotEvent {
-  if (event.by !== viewer) return event;
-  return {
+/**
+ * Only the defending team learns which ship was hit (everyone else just sees hit / sunk),
+ * and sonar counts are shared with the shooting and defending teams only.
+ */
+export function redactShotEvent(event: ShotEvent, viewer: PlayerIndex, state?: Pick<GameState, 'teams'>): ShotEvent {
+  const against = event.against ?? other(event.by);
+  const sameSide = (p: PlayerIndex) => p === viewer || (!!state && areAllies(state, p, viewer));
+  if (sameSide(against)) return event;
+  const out: ShotEvent = {
     ...event,
     results: event.results.map((r) => (r.result === 'hit' ? { coord: r.coord, result: 'hit' } : r)),
   };
+  if (out.sonar && !sameSide(event.by)) delete out.sonar;
+  return out;
 }
 
 export function publicInfo(p: PlayerState): PlayerPublicInfo {
@@ -405,6 +489,7 @@ export function publicInfo(p: PlayerState): PlayerPublicInfo {
     weaponUses: { ...p.weaponUses },
     shotsFired: p.shotsFired,
     hits: p.hits,
+    shipsSunk: p.shipsSunk,
     shipsRemaining: p.board.ships.length - lost.length,
     shipsLost: lost.map((s) => s.defId),
     consecutiveTimeouts: p.consecutiveTimeouts,
@@ -414,8 +499,15 @@ export function publicInfo(p: PlayerState): PlayerPublicInfo {
 
 /** Everything `viewer` is allowed to know. Never contains un-sunk enemy ship positions before game end. */
 export function getPublicView(state: GameState, viewer: PlayerIndex): PublicView {
-  const enemyIdx = other(viewer);
   const finished = state.phase === 'finished';
+  const enemies = seatsOf(state).filter((p) => p !== viewer && !areAllies(state, viewer, p));
+  const enemyIdx = enemies.find((p) => isAlive(state, p)) ?? enemies[0] ?? other(viewer);
+  const boardFor = (p: PlayerIndex): TargetView => {
+    const board = state.players[p].board;
+    if (p === viewer || areAllies(state, viewer, p)) return cloneBoard(board);
+    return redactBoard(board, finished || !isAlive(state, p));
+  };
+  const myBoard = cloneBoard(state.players[viewer].board);
   return {
     rules: state.rules,
     phase: state.phase,
@@ -424,10 +516,21 @@ export function getPublicView(state: GameState, viewer: PlayerIndex): PublicView
     turnNumber: state.turnNumber,
     winner: state.winner,
     finishReason: state.finishReason,
-    myBoard: cloneBoard(state.players[viewer].board),
-    enemyBoard: redactBoard(state.players[enemyIdx].board, finished),
+    myBoard,
+    enemyBoard: boardFor(enemyIdx),
     me: publicInfo(state.players[viewer]),
     enemy: publicInfo(state.players[enemyIdx]),
-    log: finished ? state.log.slice() : state.log.map((e) => redactShotEvent(e, viewer)),
+    log: finished ? state.log.slice() : state.log.map((e) => redactShotEvent(e, viewer, state)),
+    players: seatsOf(state).map((p) => ({
+      player: p,
+      team: teamOf(state, p),
+      out: state.players[p].out ?? null,
+      info: publicInfo(state.players[p]),
+      board: p === viewer ? myBoard : boardFor(p),
+    })),
+    turnOrder: turnOrderOf(state),
+    teamGame: !!state.teams,
+    winners: state.winners ?? (state.winner !== null ? [state.winner] : []),
+    standings: finished ? standings(state) : null,
   };
 }

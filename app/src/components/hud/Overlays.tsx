@@ -29,9 +29,10 @@ export function SideNotice({ text, color, hold = 1100 }: { text: string; color: 
   );
 }
 
-/** "YOUR TURN" / "ENEMY TURN" side notice. */
-export function TurnBanner({ mine }: { mine: boolean }) {
-  return <SideNotice text={mine ? 'YOUR TURN' : 'ENEMY TURN'} color={mine ? colors.radarGreen : colors.signalRed} hold={900} />;
+/** "YOUR TURN" / "ENEMY TURN" side notice; `name` labels another player's turn in 3+ player games. */
+export function TurnBanner({ mine, name }: { mine: boolean; name?: string }) {
+  const label = mine ? 'YOUR TURN' : name ? `${name.toUpperCase()}'S TURN` : 'ENEMY TURN';
+  return <SideNotice text={label} color={mine ? colors.radarGreen : colors.signalRed} hold={900} />;
 }
 
 /** Rubber-stamp text ("VICTORY", "DEFEAT"). */

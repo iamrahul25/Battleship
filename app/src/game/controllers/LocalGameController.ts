@@ -23,7 +23,7 @@ import {
   type RuleSet,
 } from '@shared/engine';
 import { ERROR_MESSAGES, type EmoteId } from '@shared/protocol';
-import { type ControllerMeta, Emitter, type GameController, type PlayerCardInfo } from './types';
+import { type ControllerMeta, Emitter, type GameController, type PlayerCardInfo, type SeatInfo } from './types';
 
 const HUMAN = 0 as const;
 const BOT = 1 as const;
@@ -117,15 +117,32 @@ export class LocalGameController implements GameController {
 
   getMeta(): ControllerMeta {
     const profile = BOT_PROFILES[this.difficulty];
+    const opponent: PlayerCardInfo = { name: profile.name, avatarId: profile.avatarId, wins: 0, losses: 0, connected: true, isBot: true };
+    const seat = (info: PlayerCardInfo, index: number): SeatInfo => ({
+      ...info,
+      sessionId: `local-${index}`,
+      seat: index,
+      team: -1,
+      eliminated: !!this.state.players[index]?.out,
+      rank: 0,
+      isHost: index === HUMAN,
+      isMe: index === HUMAN,
+      wantsRematch: false,
+      reconnectDeadline: null,
+    });
     return {
       phase: this.state.phase,
       me: this.options.me,
-      opponent: { name: profile.name, avatarId: profile.avatarId, wins: 0, losses: 0, connected: true, isBot: true },
+      opponent,
       deadline: this.paused ? null : this.deadline,
       paused: this.paused,
       connection: 'connected',
       opponentReconnectDeadline: null,
       rematch: { me: false, opponent: false },
+      seats: [seat(this.options.me, HUMAN), seat(opponent, BOT)],
+      maxPlayers: 2,
+      teamFormat: 'ffa',
+      isHost: true,
     };
   }
 

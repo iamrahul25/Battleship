@@ -7,23 +7,31 @@ import { generateRoomCode, registerRoomCode, unregisterRoomCode } from '../servi
 import {
   type Action,
   applyAction,
+  areAllies,
   createGame,
+  createRng,
   type GameEvent,
   type GameMode,
   type GameState,
   getPublicView,
+  isAlive,
   type MatchSettings,
   matchRules,
+  MIN_PLAYERS,
   type ObstacleLevel,
   ONLINE_PLACEMENT_TIME_MS,
   ONLINE_TURN_TIME_MS,
-  other,
   parseGameMode,
+  parseTeamFormat,
   type PlayerIndex,
+  playersForFormat,
   randomSeed,
   redactShotEvent,
   type RuleSet,
   STANDARD_MATCH_SETTINGS,
+  standings,
+  type TeamFormat,
+  teamsInOrder,
   totalShips,
 } from '../shared/engine';
 import {
@@ -33,6 +41,8 @@ import {
   fireSchema,
   type GameOverPayload,
   joinOptionsSchema,
+  MIN_PROTOCOL_VERSION,
+  MULTIPLAYER_PROTOCOL_VERSION,
   placeFleetSchema,
   PROTOCOL_VERSION,
   type ProfilePayload,
@@ -44,16 +54,28 @@ import {
 } from '../shared/protocol';
 import { BattleState, PlayerPublic } from './schema/BattleState';
 
-const roomSettingsSchema = joinOptionsSchema.pick({ boardSize: true, obstacles: true });
+const roomSettingsSchema = joinOptionsSchema.pick({ boardSize: true, obstacles: true, maxPlayers: true, teamFormat: true });
 
-/** Private rooms play the host's table; Quick Match (and anything malformed) plays the standard one. */
-function settingsFromOptions(options: BattleRoomOptions): MatchSettings {
-  if (!options.private) return STANDARD_MATCH_SETTINGS;
+interface RoomSetup {
+  settings: MatchSettings;
+  maxPlayers: number;
+  teamFormat: TeamFormat;
+}
+
+/** Private rooms play the host's table and size; Quick Match (and anything malformed) plays standard 1v1. */
+function setupFromOptions(options: BattleRoomOptions): RoomSetup {
+  const standard: RoomSetup = { settings: STANDARD_MATCH_SETTINGS, maxPlayers: 2, teamFormat: 'ffa' };
+  if (!options.private) return standard;
   const parsed = roomSettingsSchema.safeParse(options);
-  if (!parsed.success) return STANDARD_MATCH_SETTINGS;
+  if (!parsed.success) return standard;
+  const teamFormat = parseTeamFormat(parsed.data.teamFormat);
   return {
-    boardSize: parsed.data.boardSize ?? STANDARD_MATCH_SETTINGS.boardSize,
-    obstacles: parsed.data.obstacles ?? STANDARD_MATCH_SETTINGS.obstacles,
+    settings: {
+      boardSize: parsed.data.boardSize ?? STANDARD_MATCH_SETTINGS.boardSize,
+      obstacles: parsed.data.obstacles ?? STANDARD_MATCH_SETTINGS.obstacles,
+    },
+    maxPlayers: playersForFormat(teamFormat, parsed.data.maxPlayers ?? 2),
+    teamFormat,
   };
 }
 
@@ -68,6 +90,8 @@ export interface BattleRoomOptions {
   private?: boolean;
   boardSize?: number;
   obstacles?: ObstacleLevel;
+  maxPlayers?: number;
+  teamFormat?: string;
   /** Test hooks. */
   turnTimeMs?: number;
   placementTimeMs?: number;
@@ -87,7 +111,9 @@ export class BattleRoom extends Room<{ state: BattleState }> {
 
   game: GameState | null = null;
   rules!: RuleSet;
+  /** In join order; `index` is the engine seat once a game exists. */
   seats: Seat[] = [];
+  teamFormat: TeamFormat = 'ffa';
 
   private turnTimer: Delayed | null = null;
   private pausedRemainingMs: number | null = null;
@@ -101,17 +127,21 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     const mode = parseGameMode(options.mode);
     // Timing/seed overrides come from client join options, so only honour them under test.
     const hooks: BattleRoomOptions = isTest ? options : {};
-    const settings = settingsFromOptions(options);
+    const { settings, maxPlayers, teamFormat } = setupFromOptions(options);
     this.rules = matchRules(mode, settings, {
       turnTimeMs: hooks.turnTimeMs ?? ONLINE_TURN_TIME_MS,
       placementTimeMs: hooks.placementTimeMs ?? placementTimeFor(settings, mode),
     });
     this.reconnectSeconds = hooks.reconnectSeconds ?? config.reconnectSeconds;
     this.seed = hooks.seed;
+    this.maxClients = maxPlayers;
+    this.teamFormat = teamFormat;
     this.state = new BattleState();
     this.state.mode = mode;
     this.state.boardSize = settings.boardSize;
     this.state.obstacles = settings.obstacles;
+    this.state.maxPlayers = maxPlayers;
+    this.state.teamFormat = teamFormat;
 
     if (options.private) {
       const code = generateRoomCode();
@@ -120,7 +150,7 @@ export class BattleRoom extends Room<{ state: BattleState }> {
       registerRoomCode(code, this.roomId);
       this.setPrivate(true);
     }
-    this.setMetadata({ mode, code: this.state.code, ...settings });
+    this.setMetadata({ mode, code: this.state.code, maxPlayers, teamFormat, ...settings });
 
     this.idleTimer = this.clock.setTimeout(() => {
       if (this.state.phase === 'waiting') this.disconnect();
@@ -152,7 +182,7 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     );
     this.onMessage(ClientMessage.Fire, (client, raw) =>
       this.guarded(client, fireSchema, raw, (msg, seat) =>
-        this.dispatch({ type: 'FIRE', player: seat.index, target: { x: msg.x, y: msg.y } }, client),
+        this.dispatch({ type: 'FIRE', player: seat.index, target: { x: msg.x, y: msg.y }, targetPlayer: msg.targetPlayer }, client),
       ),
     );
     this.onMessage(ClientMessage.UseWeapon, (client, raw) =>
@@ -163,6 +193,7 @@ export class BattleRoom extends Room<{ state: BattleState }> {
             player: seat.index,
             weaponId: msg.weaponId,
             target: { x: msg.x, y: msg.y },
+            targetPlayer: msg.targetPlayer,
           },
           client,
         ),
@@ -177,12 +208,15 @@ export class BattleRoom extends Room<{ state: BattleState }> {
       this.broadcast(ServerMessage.Emote, { sessionId: client.sessionId, id: parsed.data.id });
     });
     this.onMessage(ClientMessage.Rematch, (client) => this.guarded(client, null, {}, () => this.voteRematch(client)));
+    this.onMessage(ClientMessage.Start, (client) => this.startEarly(client));
   }
 
   override onAuth(_client: Client, options: unknown) {
     const parsed = joinOptionsSchema.safeParse(options);
     if (!parsed.success) throw new ServerError(4400, 'INVALID_MESSAGE');
-    if (parsed.data.protocolVersion !== PROTOCOL_VERSION) throw new ServerError(4426, 'PROTOCOL_MISMATCH');
+    const version = parsed.data.protocolVersion;
+    if (version < MIN_PROTOCOL_VERSION || version > PROTOCOL_VERSION) throw new ServerError(4426, 'PROTOCOL_MISMATCH');
+    if (this.maxClients > 2 && version < MULTIPLAYER_PROTOCOL_VERSION) throw new ServerError(4426, 'PROTOCOL_MISMATCH');
     return true;
   }
 
@@ -192,7 +226,9 @@ export class BattleRoom extends Room<{ state: BattleState }> {
       ...parsed.profile,
       name: sanitizeName(parsed.profile.name) ?? `Sailor${Math.floor(Math.random() * 900 + 100)}`,
     };
-    const index = (this.seats.some((s) => s.index === 0) ? 1 : 0) as PlayerIndex;
+    const taken = new Set(this.seats.map((s) => s.index));
+    let index = 0;
+    while (taken.has(index)) index++;
     this.seats.push({ sessionId: client.sessionId, index, profile });
 
     const p = new PlayerPublic();
@@ -203,9 +239,10 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     p.wins = profile.wins;
     p.losses = profile.losses;
     this.state.players.set(client.sessionId, p);
+    if (!this.state.hostSessionId) this.state.hostSessionId = client.sessionId;
     logger.info({ room: this.roomId, session: client.sessionId, name: profile.name }, 'player joined');
 
-    if (this.seats.length === 2) this.startMatch();
+    if (this.seats.length === this.maxClients) this.startMatch();
   }
 
   override onDrop(client: Client) {
@@ -246,6 +283,7 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     if (this.state.phase === 'waiting') {
       this.seats = this.seats.filter((s) => s.sessionId !== client.sessionId);
       this.state.players.delete(client.sessionId);
+      if (this.state.hostSessionId === client.sessionId) this.state.hostSessionId = this.seats[0]?.sessionId ?? '';
       return;
     }
     if (p) {
@@ -253,7 +291,7 @@ export class BattleRoom extends Room<{ state: BattleState }> {
       p.reconnectDeadline = 0;
       p.wantsRematch = false;
     }
-    if (this.game && (this.state.phase === 'placement' || this.state.phase === 'battle')) {
+    if (this.game && (this.state.phase === 'placement' || this.state.phase === 'battle') && isAlive(this.game, seat.index)) {
       this.dispatch({ type: 'FORFEIT', player: seat.index, reason: consented ? 'forfeit' : 'disconnect' });
     }
     this.broadcastRematchStatus();
@@ -296,30 +334,74 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     handler(msg as never, seat);
   }
 
+  /** Host starts a free-for-all room with whoever has joined so far. */
+  private startEarly(client: Client) {
+    if (this.state.phase !== 'waiting') return this.sendError(client, 'WRONG_PHASE');
+    if (client.sessionId !== this.state.hostSessionId) return this.sendError(client, 'NOT_HOST');
+    if (this.teamFormat !== 'ffa' || this.seats.length < MIN_PLAYERS) return this.sendError(client, 'NOT_ENOUGH_PLAYERS');
+    this.startMatch();
+  }
+
   private startMatch() {
     this.idleTimer?.clear();
     this.lock();
     this.newGame();
   }
 
+  /** Seats still present for the next game: connected players, in join order. */
+  private presentSeats(): Seat[] {
+    return this.seats.filter((s) => this.state.players.get(s.sessionId)?.connected !== false);
+  }
+
+  /** Players who can't take part (left the room) give up their seat. */
+  private dropAbsentSeats() {
+    const present = new Set(this.presentSeats().map((s) => s.sessionId));
+    for (const s of this.seats) if (!present.has(s.sessionId)) this.state.players.delete(s.sessionId);
+    this.seats = this.seats.filter((s) => present.has(s.sessionId));
+  }
+
+  private canPlay(count: number): boolean {
+    if (count < MIN_PLAYERS) return false;
+    return this.teamFormat === 'ffa' || count === playersForFormat(this.teamFormat, count);
+  }
+
   private newGame() {
-    this.game = createGame(this.rules, this.seed ?? randomSeed());
+    const rng = createRng(this.seed ?? randomSeed());
+    // Engine seats are 0..n-1; team games shuffle who sits with whom.
+    const order = this.seats.slice();
+    if (this.teamFormat !== 'ffa') {
+      for (let i = order.length - 1; i > 0; i--) {
+        const j = rng.int(i + 1);
+        [order[i], order[j]] = [order[j], order[i]];
+      }
+    }
+    order.forEach((s, i) => (s.index = i));
+    this.seats = order;
+    const teams = teamsInOrder(this.teamFormat, order.length);
+
+    this.game = createGame(this.rules, this.seed ?? randomSeed(), teams ? { teams } : { players: order.length });
     this.state.phase = 'placement';
     this.state.winnerSessionId = '';
     this.state.finishReason = '';
     this.state.activeSessionId = '';
     this.state.turnNumber = 0;
     this.state.paused = false;
-    this.state.players.forEach((p) => {
+    for (const s of this.seats) {
+      const p = this.state.players.get(s.sessionId);
+      if (!p) continue;
+      p.seat = s.index;
+      p.team = teams ? teams[s.index] : -1;
       p.ready = false;
       p.charge = 0;
       p.shipsSunk.clear();
       p.wantsRematch = false;
-    });
+      p.eliminated = false;
+      p.rank = 0;
+    }
     this.sendSyncToAll();
     this.startTimer(this.rules.placementTimeMs ?? ONLINE_PLACEMENT_TIME_MS, () => {
       for (const seat of this.seats) {
-        if (this.game && this.game.phase === 'placement' && !this.game.players[seat.index].ready) {
+        if (this.game && this.game.phase === 'placement' && isAlive(this.game, seat.index) && !this.game.players[seat.index].ready) {
           this.dispatch({ type: 'TIMEOUT', player: seat.index });
           const client = this.clients.getById(seat.sessionId);
           if (client && this.game) client.send(ServerMessage.YourFleet, this.game.players[seat.index].board.ships);
@@ -379,6 +461,7 @@ export class BattleRoom extends Room<{ state: BattleState }> {
   /** Applies an action through the engine and fans out results. Returns false on rejection. */
   dispatch(action: Action, client?: Client): boolean {
     if (!this.game) return false;
+    const before = this.game;
     const res = applyActionSafe(this.game, action);
     if (res.error) {
       if (client) this.sendError(client, res.error);
@@ -396,7 +479,7 @@ export class BattleRoom extends Room<{ state: BattleState }> {
         for (const seat of this.seats) {
           const c = this.clients.getById(seat.sessionId);
           c?.send(ServerMessage.ShotResult, {
-            event: redactShotEvent(ev.shot, seat.index),
+            event: redactShotEvent(ev.shot, seat.index, this.game),
             view: getPublicView(this.game, seat.index),
           } satisfies ShotResultPayload);
         }
@@ -405,29 +488,40 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     }
     if (!sentShot) this.sendSyncToAll();
 
-    if (over) this.finish(over.winner, over.reason);
-    else if (battleStarted || (sentShot && this.game.phase === 'battle')) this.startTurnTimer();
+    const turnMoved = before.phase === 'battle' && (before.activePlayer !== this.game.activePlayer || before.turnNumber !== this.game.turnNumber);
+    if (over) this.finish(over.winners, over.reason);
+    else if (battleStarted || (this.game.phase === 'battle' && (sentShot || turnMoved))) this.startTurnTimer();
     return true;
   }
 
-  private finish(winner: PlayerIndex, reason: string) {
+  private finish(winners: PlayerIndex[], reason: string) {
     this.clearTimer();
     this.pausedRemainingMs = null;
     this.state.paused = false;
-    this.state.winnerSessionId = this.sessionOf(winner);
+    const winnerSessionIds = winners.map((w) => this.sessionOf(w));
+    this.state.winnerSessionId = winnerSessionIds[0] ?? '';
     this.state.finishReason = reason;
+    if (!this.game) return;
+    const ranks = new Map(standings(this.game).map((s) => [s.player, s.rank]));
+    for (const seat of this.seats) {
+      const p = this.state.players.get(seat.sessionId);
+      if (p) p.rank = ranks.get(seat.index) ?? 0;
+    }
     for (const seat of this.seats) {
       const c = this.clients.getById(seat.sessionId);
-      if (!c || !this.game) continue;
+      if (!c) continue;
+      const firstEnemy = this.game.players.findIndex((_, i) => i !== seat.index && !areAllies(this.game!, seat.index, i));
       c.send(ServerMessage.GameOver, {
-        winnerSessionId: this.sessionOf(winner),
-        youWon: seat.index === winner,
+        winnerSessionId: this.state.winnerSessionId,
+        winnerSessionIds,
+        youWon: winners.includes(seat.index),
+        rank: ranks.get(seat.index) ?? 0,
         reason: reason as GameOverPayload['reason'],
-        revealFleet: this.game.players[other(seat.index)].board.ships,
+        revealFleet: this.game.players[firstEnemy >= 0 ? firstEnemy : 0].board.ships,
         view: getPublicView(this.game, seat.index),
       } satisfies GameOverPayload);
     }
-    logger.info({ room: this.roomId, winner: this.sessionOf(winner), reason }, 'game over');
+    logger.info({ room: this.roomId, winners: winnerSessionIds, reason }, 'game over');
   }
 
   private syncSchema() {
@@ -442,6 +536,7 @@ export class BattleRoom extends Room<{ state: BattleState }> {
       const ps = g.players[seat.index];
       p.ready = ps.ready;
       p.charge = ps.charge;
+      p.eliminated = !!ps.out;
       const lost = ps.board.ships.filter((s) => s.hits >= s.cells.length).map((s) => s.defId);
       if (lost.length !== p.shipsSunk.length) {
         p.shipsSunk.clear();
@@ -462,11 +557,12 @@ export class BattleRoom extends Room<{ state: BattleState }> {
     const p = this.state.players.get(client.sessionId);
     if (p) p.wantsRematch = true;
     this.broadcastRematchStatus();
-    const all = this.seats.every((s) => {
-      const pp = this.state.players.get(s.sessionId);
-      return pp?.wantsRematch && pp.connected;
-    });
-    if (all && this.seats.length === 2) this.newGame();
+    const present = this.presentSeats();
+    const all = present.every((s) => this.state.players.get(s.sessionId)?.wantsRematch);
+    if (all && this.canPlay(present.length)) {
+      this.dropAbsentSeats();
+      this.newGame();
+    }
   }
 
   private broadcastRematchStatus() {

@@ -3,14 +3,17 @@ import { Redirect, router } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
-import { type Coord, isFleetComplete, mineCells, ONLINE_PLACEMENT_TIME_MS, type PlacedShip } from '@shared/engine';
+import { type Coord, isFleetComplete, isMultiplayerView, mineCells, ONLINE_PLACEMENT_TIME_MS, type PlacedShip, viewAllies } from '@shared/engine';
 import { playSound } from '@/audio/SoundManager';
 import { PlayerCard } from '@/components/hud/PlayerCard';
 import { TurnTimer } from '@/components/hud/TurnTimer';
 import { PlacementEditor, randomPlacement } from '@/components/placement/PlacementEditor';
+import { teamColor, teamName } from '@/components/setup/RoomSizeSettings';
+import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Screen } from '@/components/ui/Screen';
+import type { SeatInfo } from '@/game/controllers/types';
 import { useBackGuard } from '@/hooks/useLeaveGuard';
 import { haptic } from '@/platform/haptics';
 import { useMatchStore } from '@/stores/match';
@@ -34,7 +37,8 @@ export default function Placement() {
   const obstacles = view?.myBoard.obstacles;
   const mineCount = mineCells(obstacles).length;
   const contentW = Math.min(width - 32, 520);
-  const gridSize = Math.max(240, Math.min(contentW, height - 340));
+  const crewRows = view && isMultiplayerView(view) ? 50 : 0;
+  const gridSize = Math.max(240, Math.min(contentW, height - 340 - crewRows));
 
   useEffect(() => {
     if (view?.phase === 'battle') router.replace('/battle');
@@ -87,14 +91,40 @@ export default function Placement() {
         ) : null
       }
     >
-      {online && (
+      {online && view && meta && isMultiplayerView(view) ? (
+        <View style={styles.crew}>
+          {view.teamGame && (
+            <Text style={[styles.teamLine, { color: teamColor(view.players[view.viewer].team) }]}>
+              TEAM {teamName(view.players[view.viewer].team)}
+              {viewAllies(view).length ? ` · WITH ${viewAllies(view).map((a) => seatLabel(meta.seats, a.player)).join(', ').toUpperCase()}` : ''}
+            </Text>
+          )}
+          <View style={styles.crewRow}>
+            {view.players
+              .filter((p) => p.player !== view.viewer)
+              .map((p) => {
+                const seat = meta.seats.find((s) => s.seat === p.player);
+                const status = p.out ? 'LEFT' : p.info.ready ? 'READY' : 'DEPLOYING';
+                return (
+                  <View key={p.player} style={[styles.crewChip, view.teamGame && { borderColor: teamColor(p.team) }]}>
+                    <Avatar id={seat?.avatarId ?? 'captain'} size={22} />
+                    <Text style={styles.crewName} numberOfLines={1}>
+                      {seat?.name ?? `Player ${p.player + 1}`}
+                    </Text>
+                    <Text style={[styles.crewStatus, { color: p.out ? colors.signalRed : p.info.ready ? colors.radarGreen : colors.steel400 }]}>{status}</Text>
+                  </View>
+                );
+              })}
+          </View>
+        </View>
+      ) : online ? (
         <View style={styles.opponentRow}>
           <PlayerCard info={meta?.opponent ?? null} compact />
           <Text style={[styles.opStatus, { color: view?.enemy.ready ? colors.radarGreen : colors.steel400 }]}>
             {view?.enemy.ready ? 'READY' : 'DEPLOYING…'}
           </Text>
         </View>
-      )}
+      ) : null}
 
       <View style={{ flex: 1, justifyContent: 'center' }}>
         <PlacementEditor
@@ -149,7 +179,9 @@ export default function Placement() {
       {submitted && online && view?.phase === 'placement' && (
         <Animated.View entering={FadeIn} style={styles.waiting} pointerEvents="none">
           <ActivityIndicator color={colors.radarGreen} />
-          <Text style={[text.bodyBold, { color: colors.radarGreen }]}>Waiting for opponent…</Text>
+          <Text style={[text.bodyBold, { color: colors.radarGreen }]}>
+            {view && isMultiplayerView(view) ? 'Waiting for the other captains…' : 'Waiting for opponent…'}
+          </Text>
         </Animated.View>
       )}
 
@@ -171,8 +203,29 @@ export default function Placement() {
   );
 }
 
+function seatLabel(seats: SeatInfo[], seat: number) {
+  return seats.find((s) => s.seat === seat)?.name ?? `Player ${seat + 1}`;
+}
+
 const styles = StyleSheet.create({
   opponentRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  crew: { gap: 6, marginBottom: 8 },
+  teamLine: { fontFamily: fonts.heading, fontSize: 13, letterSpacing: 1 },
+  crewRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  crewChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: colors.steel600,
+    backgroundColor: colors.navy800,
+    maxWidth: '48%',
+  },
+  crewName: { fontFamily: fonts.bodyBold, fontSize: 13, color: colors.steel100, flexShrink: 1 },
+  crewStatus: { fontFamily: fonts.heading, fontSize: 10, letterSpacing: 1 },
   opStatus: { fontFamily: fonts.heading, fontSize: 13, letterSpacing: 1 },
   actions: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 10 },
   iconBtn: {

@@ -1,6 +1,7 @@
 export type Coord = { x: number; y: number };
 export type Rotation = 0 | 90 | 180 | 270;
-export type PlayerIndex = 0 | 1;
+/** Seat number, `0..players.length - 1`. */
+export type PlayerIndex = number;
 
 /** Data-driven ship shape, so future polyomino ships need no engine changes. */
 export interface ShipDef {
@@ -70,15 +71,25 @@ export interface PlayerState {
   powerUpsUsed: number;
   /** Set by hitting a mine: the next turn that would pass to this player is skipped. */
   skipNextTurn?: boolean;
+  /** How this player was knocked out (fleet sunk, forfeit, …). Missing while still in the game. */
+  out?: FinishReason;
 }
 
 export interface GameState {
   rules: RuleSet;
   phase: Phase;
-  players: [PlayerState, PlayerState];
+  players: PlayerState[];
   activePlayer: PlayerIndex;
+  /** Seat rotation for turns. Missing (older saves) means seat order. */
+  turnOrder?: PlayerIndex[];
+  /** Team id per seat. Missing means free-for-all (every seat is its own team). */
+  teams?: number[];
+  /** Seats in the order they were knocked out. */
+  eliminated?: PlayerIndex[];
   turnNumber: number;
+  /** First winner, kept for 1v1 callers; `winners` has the whole winning team. */
   winner: PlayerIndex | null;
+  winners?: PlayerIndex[];
   finishReason: FinishReason | null;
   log: ShotEvent[];
   /** Seeded RNG state so the reducer stays pure and replayable. */
@@ -105,6 +116,8 @@ export interface SonarResult {
 
 export interface ShotEvent {
   by: PlayerIndex;
+  /** Seat whose board was fired at. Missing in logs from before multiplayer (= the other seat). */
+  against?: PlayerIndex;
   weaponId: string;
   target: Coord;
   results: ShotResult[];
@@ -127,8 +140,9 @@ export type Action =
   /** `mines` repositions the player's own mines; omitted keeps them where they are. */
   | { type: 'PLACE_FLEET'; player: PlayerIndex; ships: PlacedShip[]; mines?: Coord[] }
   | { type: 'READY'; player: PlayerIndex }
-  | { type: 'FIRE'; player: PlayerIndex; target: Coord }
-  | { type: 'USE_WEAPON'; player: PlayerIndex; weaponId: string; target: Coord }
+  /** `targetPlayer` picks whose board to fire at; omitted means the first enemy still afloat. */
+  | { type: 'FIRE'; player: PlayerIndex; target: Coord; targetPlayer?: PlayerIndex }
+  | { type: 'USE_WEAPON'; player: PlayerIndex; weaponId: string; target: Coord; targetPlayer?: PlayerIndex }
   | { type: 'TIMEOUT'; player: PlayerIndex }
   | { type: 'FORFEIT'; player: PlayerIndex; reason?: 'forfeit' | 'disconnect' };
 
@@ -143,14 +157,16 @@ export type GameErrorCode =
   | 'WEAPON_NOT_READY'
   | 'WEAPON_UNKNOWN'
   | 'POWERUPS_DISABLED'
-  | 'BLOCKED';
+  | 'BLOCKED'
+  | 'INVALID_TARGET';
 
 export type GameEvent =
   | { type: 'fleetPlaced'; player: PlayerIndex }
   | { type: 'ready'; player: PlayerIndex }
   | { type: 'battleStart'; firstPlayer: PlayerIndex }
   | { type: 'shot'; shot: ShotEvent }
-  | { type: 'gameOver'; winner: PlayerIndex; reason: FinishReason };
+  | { type: 'eliminated'; player: PlayerIndex; reason: FinishReason }
+  | { type: 'gameOver'; winner: PlayerIndex; winners: PlayerIndex[]; reason: FinishReason };
 
 export interface ActionResult {
   state: GameState;
@@ -175,11 +191,31 @@ export interface PlayerPublicInfo {
   weaponUses: Record<string, number>;
   shotsFired: number;
   hits: number;
+  /** Enemy ships this player sank. */
+  shipsSunk: number;
   shipsRemaining: number;
   /** defIds of ships this player has lost. */
   shipsLost: string[];
   consecutiveTimeouts: number;
   powerUpsUsed: number;
+}
+
+/** One seat as seen by the viewer. */
+export interface SeatView {
+  player: PlayerIndex;
+  team: number;
+  /** How the seat was knocked out; null while still in the game. */
+  out: FinishReason | null;
+  info: PlayerPublicInfo;
+  /** Own and allied boards are complete; enemy boards show shots and sunk ships (everything once out or finished). */
+  board: TargetView;
+}
+
+export interface Standing {
+  player: PlayerIndex;
+  /** 1 = winner. Teammates share a rank. */
+  rank: number;
+  out: FinishReason | null;
 }
 
 export interface PublicView {
@@ -191,8 +227,17 @@ export interface PublicView {
   winner: PlayerIndex | null;
   finishReason: FinishReason | null;
   myBoard: Board;
+  /** First enemy still afloat (the only one in 1v1). */
   enemyBoard: TargetView;
   me: PlayerPublicInfo;
   enemy: PlayerPublicInfo;
   log: ShotEvent[];
+  /** Every seat, indexed by seat number. */
+  players: SeatView[];
+  turnOrder: PlayerIndex[];
+  /** True when seats are split into teams (2v2, 3v3, 2v2v2). */
+  teamGame: boolean;
+  winners: PlayerIndex[];
+  /** Final ranking, set once the game is finished. */
+  standings: Standing[] | null;
 }

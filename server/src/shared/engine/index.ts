@@ -6,5 +6,6 @@ export * from './placement';
 export * from './obstacles';
 export * from './attack';
 export * from './weapons';
+export * from './seats';
 export * from './game';
 export * from './bot';

@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   type Coord,
   getWeapon,
+  isMultiplayerView,
   legalTargets,
   obstacleAt,
   ONLINE_TURN_TIME_MS,
@@ -16,6 +17,7 @@ import {
 } from '@shared/engine';
 import { EMOTES } from '@shared/protocol';
 import { playSound } from '@/audio/SoundManager';
+import { MultiBattle } from '@/components/battle/MultiBattle';
 import { BattleGrid } from '@/components/grid/BattleGrid';
 import { RulesSheet } from '@/components/help/RulesSheet';
 import { FleetTracker } from '@/components/hud/FleetTracker';
@@ -37,6 +39,11 @@ import { colors, fonts } from '@/theme';
 const sonarFrom = (log: ShotEvent[], by: number) => log.filter((e) => e.by === by && e.sonar).map((e) => e.sonar!);
 
 export default function Battle() {
+  const multi = useMatchStore((st) => !!st.view && isMultiplayerView(st.view));
+  return multi ? <MultiBattle /> : <DuelBattle />;
+}
+
+function DuelBattle() {
   const s = useMatchStore();
   const { controller, view, meta, fx } = s;
   const reduced = useSettingsStore((st) => st.reducedMotion);

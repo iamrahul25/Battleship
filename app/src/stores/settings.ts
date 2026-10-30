@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
-import { DEFAULT_BOARD_SIZE, type GameMode, type ObstacleLevel, parseGameMode } from '@shared/engine';
+import { DEFAULT_BOARD_SIZE, type GameMode, type ObstacleLevel, parseGameMode, type TeamFormat } from '@shared/engine';
 import { zustandStorage } from '@/platform/storage';
 
 export interface SettingsState {
@@ -16,6 +16,9 @@ export interface SettingsState {
   boardSize: number;
   /** Last obstacle density chosen for bot games. */
   obstacles: ObstacleLevel;
+  /** Last private room size (2–6 players) and team split. */
+  roomPlayers: number;
+  roomFormat: TeamFormat;
   reducedMotion: boolean;
   /** Picture sprites for ships; off falls back to the simple drawn art. */
   imageGraphics: boolean;
@@ -33,6 +36,8 @@ export const DEFAULT_SETTINGS = {
   defaultMode: 'advance' as GameMode,
   boardSize: DEFAULT_BOARD_SIZE,
   obstacles: 'few' as ObstacleLevel,
+  roomPlayers: 2,
+  roomFormat: 'ffa' as TeamFormat,
   reducedMotion: false,
   imageGraphics: true,
 };
